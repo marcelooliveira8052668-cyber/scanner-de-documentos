@@ -3,19 +3,20 @@
    ========================================================= */
 'use strict';
 
-const VERSAO = 'scanner-v3';
+const VERSAO = 'scanner-v4';
+const V = '?v=4';                    // mesma versão usada no index.html
 const ARQUIVOS = [
   './',
   './index.html',
-  './styles.css',
+  './styles.css' + V,
   './manifest.json',
-  './js/utils.js',
-  './js/filters.js',
-  './js/pdf.js',
-  './js/zip.js',
-  './js/db.js',
-  './js/app.js',
-  './js/vendor/qrcode.js',
+  './js/utils.js' + V,
+  './js/filters.js' + V,
+  './js/pdf.js' + V,
+  './js/zip.js' + V,
+  './js/db.js' + V,
+  './js/app.js' + V,
+  './js/vendor/qrcode.js' + V,
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
