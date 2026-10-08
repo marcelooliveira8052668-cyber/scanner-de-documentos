@@ -274,7 +274,9 @@ async function importarArquivos(arquivos) {
       try {
         const img = await carregarImagem(arq);
         // já dá um nome a cada folha: o número do arquivo
-        await adicionarPagina(canvasLimitado(img, App.qualidade), `Folha ${++i}`);
+        let folha = canvasLimitado(img, App.qualidade);
+        folha = realcarNitidez(folha);   // mesmo realce da câmera: texto sapecado
+        await adicionarPagina(folha, `Folha ${++i}`);
       } catch (e) {
         aviso('Não consegui ler uma das fotos.');
       }
@@ -297,7 +299,9 @@ const Quadro = {
   anterior: null,       // detecção anterior (para medir estabilidade)
   estavel: 0,           // quantas detecções seguidos ficaram parecidos
   animando: false,
-  ultimaTentativa: 0
+  ultimaTentativa: 0,
+  ultimoAcerto: 0,      // quando a folha foi detectada da última vez (ms)
+  provisorio: false     // true = guia é só um chute (tracejado amarelo), ainda não achou o papel
 };
 
 const INTERVALO_DETECCAO = 130;   // ms entre leituras (não pesa no iPhone)
@@ -347,6 +351,8 @@ function ligarDeteccao() {
   Quadro.ret = null;
   Quadro.anterior = null;
   Quadro.estavel = 0;
+  Quadro.provisorio = false;
+  Quadro.ultimoAcerto = 0;
   Quadro.animando = true;
   if (Quadro.raf) cancelAnimationFrame(Quadro.raf);
   quadroLaco();
@@ -357,6 +363,8 @@ function desligarDeteccao() {
   if (Quadro.raf) cancelAnimationFrame(Quadro.raf);
   Quadro.raf = null;
   Quadro.ret = null;
+  Quadro.provisorio = false;
+  Quadro.estavel = 0;
   const el = $('#estado-quadro');
   if (el) el.hidden = true;
 }
@@ -387,11 +395,21 @@ function quadroLaco() {
 
   const det = detectarBordas(mini);
   if (!det) {
-    Quadro.ret = null;
-    Quadro.anterior = null;
-    Quadro.estavel = 0;
-    marcarEstado('Procurando a folha…', false);
-    limparGuia();
+    // Perdeu a folha por um instante (movimento da mão, sombra…):
+    // segura o último guia por 1,2s para a tela não piscar, e depois
+    // mostra o retângulo provisório (tracejado amarelo) orientando o usuário.
+    const segurando = Quadro.ret && (agora - Quadro.ultimoAcerto) < 1200;
+    if (!segurando) {
+      Quadro.ret = retanguloPadrao(geo);
+      Quadro.provisorio = true;
+      Quadro.anterior = null;
+      Quadro.estavel = 0;
+      marcarEstado('Aproxime a folha até o guia ficar verde', false);
+      desenharGuia(video, geo, tela, Quadro.ret);
+      return;
+    }
+    Quadro.provisorio = true;
+    marcarEstado('Aproxime a folha até o guia ficar verde', false);
     return;
   }
 
@@ -426,9 +444,19 @@ function quadroLaco() {
   }
   Quadro.anterior = rect;
   Quadro.ret = rect;
+  Quadro.ultimoAcerto = agora;
+  Quadro.provisorio = false;
 
+  // Verde só quando a folha parou de mexer entre leituras (estável).
   marcarEstado(Quadro.estavel >= 2 ? 'Folha enquadrada ✓' : 'Ajustando…', Quadro.estavel >= 2);
   desenharGuia(video, geo, tela, rect);
+}
+
+/** Retângulo "chute" usado quando a folha ainda não foi encontrada:
+ *  ocupa o centro da tela e serve de referência para o usuário posicionar o papel. */
+function retanguloPadrao(geo) {
+  const mx = geo.largura * 0.10, my = geo.altura * 0.12;
+  return { x: mx, y: my, w: geo.largura - mx * 2, h: geo.altura - my * 2 };
 }
 
 function limparGuia() {
@@ -479,11 +507,16 @@ function desenharGuia(video, geo, tela, rect) {
   ctx.fill('evenodd');
   ctx.restore();
 
-  // 2) borda destacada
-  const pronto = Quadro.estavel >= 2;
+  // 2) borda destacada:
+  //    - VERDE com brilho quando a folha está parada e enquadrada (pode fotografar);
+  //    - AMARELA TRACEJADA enquanto é só um chute (provisório, folha não encontrada);
+  //    - branca enquanto a folha ainda está sendo ajustada.
+  const pronto = Quadro.estavel >= 2 && !Quadro.provisorio;
   ctx.save();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = pronto ? '#22c07a' : 'rgba(255,255,255,.92)';
+  if (Quadro.provisorio) ctx.setLineDash([12, 9]);
+  ctx.strokeStyle = pronto ? '#22c07a'
+    : (Quadro.provisorio ? 'rgba(255,209,102,.95)' : 'rgba(255,255,255,.92)');
   ctx.shadowColor = pronto ? 'rgba(34,192,122,.8)' : 'rgba(0,0,0,.5)';
   ctx.shadowBlur = pronto ? 14 : 6;
   ctx.beginPath();
@@ -501,6 +534,7 @@ function alternarQuadro() {
   if (!Quadro.ativo) {
     Quadro.ret = null;
     Quadro.estavel = 0;
+    Quadro.provisorio = false;
     limparGuia();
     $('#estado-quadro').hidden = true;
     aviso('Enquadramento automático desligado.');
@@ -522,8 +556,12 @@ async function abrirCamera() {
     App.stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: 'environment' },
-        width: { ideal: 2560 },
-        height: { ideal: 1920 }
+        // Resolução máxima do iPhone (12 MP): quanto mais pixels a câmera
+        // entregar, mais nítida sai a folha depois de recortada.
+        width: { ideal: 4032 },
+        height: { ideal: 3024 },
+        // Evita o modo "economia de dados" que entrega quadro borrado
+        frameRate: { ideal: 30, min: 15 }
       },
       audio: false
     });
@@ -578,7 +616,9 @@ async function capturar() {
   flash.classList.add('on');
   setTimeout(() => flash.classList.remove('on'), 130);
 
-  const enquadrado = !!(Quadro.ativo && Quadro.ret);
+  // Só corta no retângulo se a folha foi realmente detectada
+  // (Quadro.provisorio = o guia era só um chute, não a folha em si).
+  const enquadrado = !!(Quadro.ativo && Quadro.ret && !Quadro.provisorio);
   const geo = geometriaVideo(video);
 
   await comCarregando('Processando folha…', async () => {
@@ -593,7 +633,9 @@ async function capturar() {
       base = recortarCanvas(base, Quadro.ret);
     }
 
-    const folha = canvasLimitado(base, App.qualidade);
+    let folha = canvasLimitado(base, App.qualidade);
+    // afina o texto: tira o borrão leve que a câmera deixa
+    folha = realcarNitidez(folha);
     await adicionarPagina(folha, `Folha ${App.paginas.length + 1}`);
   });
 
@@ -773,7 +815,9 @@ async function salvarSessao() {
     for (const pasta of App.pastas) {
       const itens = [];
       for (const p of (pasta.paginas || [])) {
-        const blob = await canvasParaBlob(p.original, 'image/jpeg', 0.86);
+        // 0.94: guarda quase sem perda — se guardar com pressão,
+        // o PDF gerado depois de reabrir o app sai borrado.
+        const blob = await canvasParaBlob(p.original, 'image/jpeg', 0.94);
         itens.push({
           blob, largura: p.largura, altura: p.altura,
           rotacao: p.rotacao, filtro: p.filtro, nome: p.nome || ''
@@ -1202,7 +1246,8 @@ async function pdfDasPaginas(lista, titulo) {
   for (let i = 0; i < lista.length; i++) {
     const p = lista[i];
     const canvas = await p.canvasBase();
-    const jpeg = await canvasParaBlob(canvas, 'image/jpeg', 0.88);
+    // 0.95: JPEG quase sem perda — texto pequeno continua legível no PDF
+    const jpeg = await canvasParaBlob(canvas, 'image/jpeg', 0.95);
     itens.push({
       bytes: new Uint8Array(await jpeg.arrayBuffer()),
       width: canvas.width,

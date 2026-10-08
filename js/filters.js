@@ -163,7 +163,18 @@ function detectarBordas(origem) {
   }
 
   const frac = areaVencedora / (w * h);
-  if (frac < 0.18 || frac > 0.985) return null;   // sem papel claro dominante: não corta
+
+  // folha ocupando quase todo o quadro: em vez de desistir, corta só as bordas
+  if (frac >= 0.97) {
+    const m = 0.035;
+    return {
+      x: origem.width * m, y: origem.height * m,
+      w: origem.width * (1 - 2 * m), h: origem.height * (1 - 2 * m)
+    };
+  }
+
+  // papel pequeno demais (luz fraca, folha longe demais): não tem o que cortar
+  if (frac < 0.10) return null;
 
   // --- caixa envolvente do componente vencedor ---
   let minX = w, maxX = 0, minY = h, maxY = 0;

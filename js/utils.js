@@ -61,8 +61,66 @@ function canvasLimitado(img, maxDim) {
   const h = img.naturalHeight || img.height;
   const escala = Math.min(1, maxDim / Math.max(w, h));
   const c = novoCanvas(w * escala, h * escala);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const ctx = c.getContext('2d');
+  // Interpolação de alta qualidade: sem isso o navegador usa a rápida
+  // e a folha sai borrada (especialmente em texto pequeno).
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, c.width, c.height);
   return c;
+}
+
+/**
+ * Realça a nitidez da imagem (máscara de desfoque / unsharp mask).
+ * Compara cada pixel com a média dos vizinhos e realça a diferença —
+ * alivia o borrão que a câmera e o redimensionamento deixam,
+ * principalmente em texto pequeno. Devolve o mesmo canvas.
+ */
+function realcarNitidez(canvas, forca = 0.55) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const w = canvas.width, h = canvas.height;
+  if (w < 3 || h < 3) return canvas;
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const n = w * h;
+
+  // 1) luminância (claro/escuro) de cada pixel — é nela que o texto vive
+  const lum = new Float32Array(n);
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    lum[p] = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+  }
+
+  // 2) borrado 3×3 (média) calculado em faixas: separável e rápido
+  const tmp = new Float32Array(n);
+  const blur = new Float32Array(n);
+  for (let y = 0; y < h; y++) {            // horizontal
+    const l = y * w;
+    for (let x = 0; x < w; x++) {
+      const x0 = x > 0 ? x - 1 : 0;
+      const x1 = x < w - 1 ? x + 1 : w - 1;
+      tmp[l + x] = (lum[l + x0] + lum[l + x] + lum[l + x1]) / 3;
+    }
+  }
+  for (let x = 0; x < w; x++) {            // vertical
+    for (let y = 0; y < h; y++) {
+      const y0 = y > 0 ? y - 1 : 0;
+      const y1 = y < h - 1 ? y + 1 : h - 1;
+      blur[y * w + x] = (tmp[y0 * w + x] + tmp[y * w + x] + tmp[y1 * w + x]) / 3;
+    }
+  }
+
+  // 3) aplica o realce nos três canais: ganha a nitidez da diferença
+  //    entre o original e o borrado, sem mudar as cores da página
+  for (let p = 0, i = 0; p < n; p++, i += 4) {
+    const delta = (lum[p] - blur[p]) * forca;
+    d[i]     = clamp(d[i] + delta, 0, 255);
+    d[i + 1] = clamp(d[i + 1] + delta, 0, 255);
+    d[i + 2] = clamp(d[i + 2] + delta, 0, 255);
+  }
+
+  ctx.putImageData(img, 0, 0);
+  return canvas;
 }
 
 function canvasParaBlob(canvas, tipo = 'image/jpeg', qualidade = 0.9) {
