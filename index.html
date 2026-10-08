@@ -109,26 +109,26 @@
 <!-- ======================= TELA DA CÂMERA ======================= -->
 <section id="tela-camera" class="tela camera-tela">
   <video id="video" playsinline muted autoplay disablepictureinpicture></video>
+  <canvas id="guia-canvas" class="guia-canvas" aria-hidden="true"></canvas>
   <canvas id="flash" class="flash"></canvas>
 
   <div class="camera-topo">
     <button id="btn-fechar-camera" class="btn-icone" aria-label="Fechar câmera">✕</button>
     <div class="contador" id="contador">0</div>
+    <button id="btn-auto-quadro" class="btn-icone ativo" aria-label="Enquadrar a folha automaticamente" title="Enquadrar a folha automaticamente">⌗</button>
     <button id="btn-flash" class="btn-icone" aria-label="Lanterna" hidden>🔦</button>
-    <span class="btn-icone fantasma" aria-hidden="true"></span>
   </div>
 
-  <div class="guia" aria-hidden="true">
-    <span class="canto c1"></span><span class="canto c2"></span>
-    <span class="canto c3"></span><span class="canto c4"></span>
+  <div id="estado-quadro" class="estado-quadro" hidden>
+    <span class="bolinha"></span><span id="estado-quadro-txt">Procurando a folha…</span>
   </div>
 
   <div class="camera-base">
-    <button id="btn-auto-crop" class="btn-texto" title="Aplica recorte automático nas páginas já capturadas">✂ Recorte auto</button>
-    <button id="btn-disparo" class="btn-disparo" aria-label="Capturar página">
+    <button id="btn-auto-crop" class="btn-texto" title="Recorta as bordas nas folhas já fotografadas">✂ Recorte</button>
+    <button id="btn-disparo" class="btn-disparo" aria-label="Fotografar a folha">
       <span></span>
     </button>
-    <button id="btn-ver-paginas" class="btn-texto" title="Abrir as páginas já capturadas">📑 Páginas</button>
+    <button id="btn-ver-paginas" class="btn-texto" title="Abrir as folhas já fotografadas">📑 Folhas</button>
   </div>
 </section>
 
