@@ -3,7 +3,7 @@
    ========================================================= */
 'use strict';
 
-const VERSAO = 'scanner-v2';
+const VERSAO = 'scanner-v3';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const ARQUIVOS = [
   './js/utils.js',
   './js/filters.js',
   './js/pdf.js',
+  './js/zip.js',
   './js/db.js',
   './js/app.js',
   './js/vendor/qrcode.js',
@@ -24,6 +25,7 @@ const ARQUIVOS = [
 self.addEventListener('install', evento => {
   evento.waitUntil(
     caches.open(VERSAO)
+      // addAll falha inteiro se um arquivo faltar: melhor assim do que cache pela metade
       .then(cache => cache.addAll(ARQUIVOS))
       .then(() => self.skipWaiting())
   );
@@ -40,21 +42,28 @@ self.addEventListener('activate', evento => {
 self.addEventListener('fetch', evento => {
   const req = evento.request;
   if (req.method !== 'GET') return;
+  if (new URL(req.url).origin !== location.origin) return;
 
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
-
-  // strategy: cache first, rede como plano B (e atualiza o cache)
-  evento.respondWith(
-    caches.match(req).then(cacheado => {
-      const daRede = fetch(req).then(res => {
-        if (res && res.ok) {
-          const copia = res.clone();
-          caches.open(VERSAO).then(c => c.put(req, copia));
-        }
-        return res;
-      }).catch(() => cacheado);
-      return cacheado || daRede;
-    })
-  );
+  /* Estratégia: rede primeiro, cache como reserva.
+     Assim o app atualizado chega na hora (importante para quem
+     já instalou na tela de início) e continua funcionando sem
+     internet, porque a segunda visita usa o cache. */
+  evento.respondWith((async () => {
+    try {
+      const resposta = await fetch(req);
+      if (resposta && resposta.ok) {
+        const copia = resposta.clone();
+        caches.open(VERSAO).then(c => c.put(req, copia));
+      }
+      return resposta;
+    } catch (e) {
+      const salvo = await caches.match(req);
+      if (salvo) return salvo;
+      if (req.mode === 'navigate') {
+        const inicio = await caches.match('./index.html');
+        if (inicio) return inicio;
+      }
+      throw e;
+    }
+  })());
 });

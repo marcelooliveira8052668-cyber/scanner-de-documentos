@@ -19,15 +19,85 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
+/* =========================================================
+   CORES DO APP — a pessoa escolhe no botão do topo
+   ========================================================= */
+:root,
+body.tema-azul {
+  --bg: #0b1220;
+  --bg2: #131c30;
+  --card: #18233c;
+  --card2: #1f2c4a;
+  --txt: #eaf0ff;
+  --txt2: #9fb0d0;
+  --prim: #2f7dff;
+  --prim2: #1a5fe0;
+  --ok: #22c07a;
+  --perigo: #e0504a;
+  --borda: rgba(255, 255, 255, .08);
+  --brilho: 47, 125, 255;
+}
+
+body.tema-rosa {
+  --bg: #160a13;
+  --bg2: #241019;
+  --card: #2b1522;
+  --card2: #3b1d2e;
+  --txt: #ffeef6;
+  --txt2: #d5a7bd;
+  --prim: #e8559f;
+  --prim2: #c62b7d;
+  --ok: #35c98c;
+  --perigo: #e8574f;
+  --borda: rgba(255, 255, 255, .09);
+  --brilho: 232, 85, 159;
+}
+
+body {
+  transition: background-color .25s ease;
   background: var(--bg);
   color: var(--txt);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+}
+
+/* ---- botão de escolha de cor ---- */
+.topo-home { display: flex; align-items: center; gap: 12px; }
+.topo-titulo { flex: 1; min-width: 0; }
+.topo-titulo h1 { font-size: 20px; margin: 0; }
+.escolha-cor { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+.cor-rotulo {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .8px;
+  color: var(--txt2); font-weight: 700;
+}
+.tom {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  position: relative;
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .18);
+}
+.tom-azul { background: linear-gradient(135deg, #4a94ff, #1142b0); }
+.tom-rosa { background: linear-gradient(135deg, #ff7ec0, #c62b7d); }
+.tom.ativo {
+  border-color: var(--txt);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, .3), 0 0 0 3px rgba(var(--brilho), .45);
+}
+.tom.ativo::after {
+  content: "✓";
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+}
+.tom:active { transform: scale(.92); }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
 }
 
 body { user-select: none; -webkit-user-select: none; }
@@ -42,7 +112,7 @@ body { user-select: none; -webkit-user-select: none; }
     margin: 0 auto;
     box-shadow: 0 0 60px rgba(0, 0, 0, .6);
   }
-  body { background: #06090f; }
+  html { background: #06090f; }
 }
 
 /* ---------------- topo ---------------- */
@@ -57,7 +127,7 @@ body { user-select: none; -webkit-user-select: none; }
 }
 .topo h1 { font-size: 19px; margin: 0; flex: 1; text-align: center; font-weight: 700; }
 .topo .sub { margin: 2px 0 0; text-align: center; color: var(--txt2); font-size: 12px; }
-.topo > h1 + .sub { flex: 1; }
+.topo .sub:only-child { margin-left: auto; }
 
 .conteudo {
   flex: 1 1 auto;
@@ -240,8 +310,8 @@ body { user-select: none; -webkit-user-select: none; }
   flex: 1;
   background: linear-gradient(135deg, var(--prim), var(--prim2));
   border: 0; color: #fff;
-  font-size: 16px; font-weight: 700;
-  padding: 17px 14px;
+  font-size: 15px; font-weight: 700;
+  padding: 15px 10px;
   border-radius: 14px;
 }
 .btn-secundario {
@@ -249,10 +319,104 @@ body { user-select: none; -webkit-user-select: none; }
   border: 1px solid var(--borda);
   color: var(--txt);
   font-size: 15px; font-weight: 600;
-  padding: 17px 16px;
+  padding: 15px 14px;
   border-radius: 14px;
 }
+.btn-secundario.compacto {
+  font-size: 10.5px; line-height: 1.4;
+  padding: 9px 4px;
+  min-width: 54px;
+  font-weight: 700;
+}
 .btn-primario:active, .btn-secundario:active { transform: scale(.98); filter: brightness(.95); }
+
+/* ---- barra de ferramentas logo abaixo do topo ---- */
+.sub-topo {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--borda);
+  flex: 0 0 auto;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.sub-topo::-webkit-scrollbar { display: none; }
+.sub-topo #editor-sub { margin-left: auto; color: var(--txt2); font-size: 12px; white-space: nowrap; padding-left: 8px; }
+.btn-texto-suave {
+  border: 1px solid var(--borda);
+  background: var(--card);
+  color: var(--txt);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.btn-texto-suave:active { background: var(--card2); }
+.btn-texto-suave.perigo { color: #ff9d99; }
+.titulo-pasta { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- lista de pastas ---- */
+.pasta-cartao { padding-bottom: 10px; }
+.lista-pastas { display: grid; gap: 8px; margin-bottom: 4px; }
+.pasta-item { display: flex; align-items: center; gap: 6px; }
+.pasta-abrir {
+  flex: 1 1 auto;
+  display: flex; align-items: center; gap: 10px;
+  min-width: 0;
+  background: var(--bg2);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  padding: 11px 12px;
+  color: var(--txt);
+  text-align: left;
+}
+.pasta-abrir:active { background: var(--card2); }
+.pasta-icone { font-size: 20px; flex: 0 0 auto; }
+.pasta-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pasta-info b { font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pasta-info small { color: var(--txt2); font-size: 11.5px; }
+.pasta-seta { color: var(--txt2); font-size: 20px; flex: 0 0 auto; }
+.pasta-acoes { display: flex; gap: 4px; flex: 0 0 auto; }
+.pasta-acoes .mini-btn { width: 38px; padding: 10px 0; font-size: 14px; }
+.vazio-pastas { color: var(--txt2); font-size: 12.5px; margin: 0 0 6px; }
+.vazio-pastas p { margin: 0; }
+
+/* ---- nome da folha na lista ---- */
+.nome-folha {
+  border: 0;
+  background: transparent;
+  color: var(--txt);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 4px 8px 4px 0;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nome-folha:active { color: var(--prim); }
+
+/* ---- modal de dar nome ---- */
+.rotulo {
+  display: block;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--txt2);
+  margin-bottom: 8px;
+}
+.campo {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+  color: var(--txt);
+  font-size: 17px;
+  font-family: inherit;
+  padding: 15px 14px;
+  margin-bottom: 12px;
+}
+.campo:focus { outline: 2px solid var(--prim); outline-offset: 1px; }
+.chips-sugestoes { margin-bottom: 14px; }
 
 /* ---------------- modais ---------------- */
 .modal {
@@ -360,7 +524,7 @@ body { user-select: none; -webkit-user-select: none; }
 .preview-pagina img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .acoes-modal {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;
   padding: 12px 10px calc(14px + var(--safe-b));
   border-top: 1px solid var(--borda);
 }

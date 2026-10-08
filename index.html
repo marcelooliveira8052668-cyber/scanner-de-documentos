@@ -19,12 +19,28 @@
 
 <!-- ======================= TELA INICIAL ======================= -->
 <section id="tela-home" class="tela ativa">
-  <header class="topo">
-    <h1>📄 Scanner</h1>
-    <p class="sub">Digitalize • PDF • Compartilhe</p>
+  <header class="topo topo-home">
+    <div class="topo-titulo">
+      <h1>📄 Scanner</h1>
+      <p class="sub">Digitalize • PDF • Compartilhe</p>
+    </div>
+    <div class="escolha-cor" role="group" aria-label="Escolher cor do aplicativo">
+      <span class="cor-rotulo">Cor</span>
+      <button class="tom tom-azul" data-tema="azul" aria-label="Cor azul" title="Cor azul"></button>
+      <button class="tom tom-rosa" data-tema="rosa" aria-label="Cor rosa" title="Cor rosa"></button>
+    </div>
   </header>
 
   <main class="conteudo">
+    <section class="cartao pasta-cartao">
+      <h2>Meus documentos</h2>
+      <div id="lista-pastas" class="lista-pastas"></div>
+      <div id="pastas-vazio" class="vazio-pastas">
+        <p>Nenhuma pasta ainda. Crie uma para separar cada documento.</p>
+      </div>
+      <button id="btn-nova-pasta" class="btn-linha">📁 Nova pasta de documentos</button>
+    </section>
+
     <div class="acoes-grandes">
       <button id="btn-camera" class="btn-grande primario">
         <span class="emoji">📷</span>
@@ -63,6 +79,15 @@
       <p class="dica" style="margin-top:0">Abra o app no iPhone por este QR Code e depois use
         <b>Compartilhar → Adicionar à Tela de Início</b> para criar o ícone.</p>
       <button id="btn-qr" class="btn-linha">📱 Ver QR Code de acesso</button>
+    </section>
+
+    <section class="cartao">
+      <h2>Como enviar para outra pessoa</h2>
+      <p class="dica" style="margin-top:0">
+        <b>📄 PDF desta pasta</b> — 1 arquivo, abre em qualquer lugar. Melhor para enviar um documento só.<br><br>
+        <b>✉️ Separado</b> — 1 PDF de cada pasta, todos na mesma mensagem do WhatsApp. O cliente só toca e abre.<br><br>
+        <b>🗂 Tudo (.zip)</b> — tudo junto numa pastinha. Serve quando são muitos documentos.
+      </p>
     </section>
 
     <section class="cartao">
@@ -110,10 +135,16 @@
 <!-- ======================= TELA DE EDIÇÃO ======================= -->
 <section id="tela-editor" class="tela">
   <header class="topo">
-    <button id="btn-voltar-home" class="btn-icone" aria-label="Voltar">‹</button>
-    <h1 id="editor-titulo">Minhas páginas</h1>
+    <button id="btn-voltar-home" class="btn-icone" aria-label="Voltar para os documentos">‹</button>
+    <h1 id="editor-titulo" class="titulo-pasta">Minhas páginas</h1>
     <button id="btn-mais" class="btn-icone" aria-label="Adicionar páginas">＋</button>
   </header>
+  <div class="sub-topo">
+    <button id="btn-renomear-pasta" class="btn-texto-suave">✎ Renomear pasta</button>
+    <button id="btn-renomear-tudo" class="btn-texto-suave">🔢 Nome em sequência</button>
+    <button id="btn-limpar" class="btn-texto-suave perigo">🗑 Limpar</button>
+    <span id="editor-sub">0 folhas</span>
+  </div>
 
   <main class="conteudo">
     <div id="status-salvamento" class="status-save" hidden></div>
@@ -130,9 +161,10 @@
   </main>
 
   <div class="barra-inferior">
-    <button id="btn-limpar" class="btn-secundario">Limpar</button>
-    <button id="btn-fotos" class="btn-secundario" title="Salvar cada página como foto no iCloud Fotos">☁️<br>Fotos</button>
-    <button id="btn-gerar-pdf" class="btn-primario">Gerar e enviar PDF</button>
+    <button id="btn-fotos" class="btn-secundario compacto" title="Salvar cada folha como foto no iCloud Fotos">☁️<br>Fotos</button>
+    <button id="btn-zip" class="btn-secundario compacto" title="Manda tudo junto numa pastinha .zip">🗂<br>Tudo</button>
+    <button id="btn-separado" class="btn-secundario compacto" title="Manda um PDF de cada documento na mesma mensagem">✉️<br>Separado</button>
+    <button id="btn-gerar-pdf" class="btn-primario">📄 PDF desta pasta</button>
   </div>
 </section>
 
@@ -177,6 +209,7 @@
     <button data-a="girar" class="btn-acao"><span>⟳</span>Girar</button>
     <button data-a="recortar" class="btn-acao"><span>⛶</span>Recortar</button>
     <button data-a="auto" class="btn-acao"><span>✂</span>Bordas</button>
+    <button data-a="renomear" class="btn-acao"><span>✎</span>Nome</button>
     <button data-a="imagem" class="btn-acao"><span>☁️</span>Salvar foto</button>
     <button data-a="excluir" class="btn-acao perigo"><span>🗑️</span>Excluir</button>
   </div>
@@ -195,6 +228,22 @@
       Toque em <b>“Salvar Imagem”</b> para guardar a foto no <b>iCloud Fotos</b>.
     </p>
     <div id="passos-fotos" class="passos"></div>
+  </div>
+</div>
+
+<!-- ======================= MODAL DAR NOME ======================= -->
+<div id="modal-nome" class="modal" hidden>
+  <div class="modal-topo">
+    <button id="btn-nome-cancelar" class="btn-icone">✕</button>
+    <strong id="nome-titulo">Nome</strong>
+    <button id="btn-nome-ok" class="btn-icone ok">✓</button>
+  </div>
+  <div class="conteudo">
+    <label class="rotulo" for="campo-nome">Nome</label>
+    <input id="campo-nome" class="campo" type="text" placeholder="Ex.: Contrato de aluguel"
+           maxlength="60" autocapitalize="sentences" autocomplete="off">
+    <div id="sugestoes-nome" class="chips chips-sugestoes"></div>
+    <p class="explicacao" id="nome-dica"></p>
   </div>
 </div>
 
@@ -231,6 +280,7 @@
 <script src="js/utils.js"></script>
 <script src="js/filters.js"></script>
 <script src="js/pdf.js"></script>
+<script src="js/zip.js"></script>
 <script src="js/db.js"></script>
 <script src="js/app.js"></script>
 </body>

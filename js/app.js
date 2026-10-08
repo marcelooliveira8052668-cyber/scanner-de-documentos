@@ -4,7 +4,10 @@
 'use strict';
 
 const App = {
-  paginas: [],                 // { id, original, filtro, rotacao, url, largura, altura }
+  // "pastas" = documentos do usuário. Cada pasta tem suas próprias páginas.
+  pastas: [],                  // [{ id, nome, criadaEm, paginas: [] }]
+  pastaAtualId: null,
+  paginas: [],                 // atalho: páginas da pasta aberta
   qualidade: 2400,
   filtro: 'auto',
   modoPagina: 'a4',
@@ -12,6 +15,129 @@ const App = {
   torch: false,
   paginaAtualModal: null
 };
+
+/* =========================================================
+   Pastas (documentos)
+   ========================================================= */
+const novoId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function pastaAtual() {
+  return App.pastas.find(p => p.id === App.pastaAtualId) || null;
+}
+
+/** Guarda as páginas abertas dentro da pasta atual. */
+function guardarNaPasta() {
+  const p = pastaAtual();
+  if (p) p.paginas = App.paginas;
+}
+
+function criarPasta(nome) {
+  const pasta = {
+    id: novoId('d'),
+    nome: (nome || '').trim() || 'Documento sem nome',
+    criadaEm: Date.now(),
+    paginas: []
+  };
+  App.pastas.unshift(pasta);
+  return pasta;
+}
+
+function abrirPasta(id) {
+  guardarNaPasta();
+  const pasta = App.pastas.find(p => p.id === id);
+  if (!pasta) return;
+  App.pastaAtualId = pasta.id;
+  App.paginas = pasta.paginas || [];
+  paginasCount();
+  irPara('editor');
+  renderEditor();
+}
+
+function excluirPasta(id) {
+  const i = App.pastas.findIndex(p => p.id === id);
+  if (i < 0) return;
+  const pasta = App.pastas[i];
+  if (!confirm(`Apagar a pasta "${pasta.nome}" e todas as folhas dela?`)) return;
+  pasta.paginas.forEach(p => p.descartar());
+  if (pasta.id === App.pastaAtualId) {
+    App.pastaAtualId = null;
+    App.paginas = [];
+    paginasCount();
+    if ($('#tela-editor').classList.contains('ativa')) irPara('home');
+  }
+  App.pastas.splice(i, 1);
+  renderPastas();
+  agendarSalvamento();
+}
+
+function renomearPasta(id, nome) {
+  const pasta = App.pastas.find(p => p.id === id);
+  if (!pasta) return;
+  pasta.nome = (nome || '').trim() || pasta.nome;
+  renderPastas();
+  $('#editor-titulo').textContent = pasta.nome;
+  $('#editor-sub').textContent = `${App.paginas.length} folha(s)`;
+  agendarSalvamento();
+}
+
+function renderPastas() {
+  const alvo = $('#lista-pastas');
+  alvo.innerHTML = '';
+  $('#pastas-vazio').hidden = App.pastas.length > 0;
+  $('#btn-camera').hidden = false;
+
+  for (const pasta of App.pastas) {
+    const item = document.createElement('div');
+    item.className = 'pasta-item';
+    const folhas = (pasta.paginas || []).length;
+    const quando = formatarData(pasta.criadaEm);
+    item.innerHTML = `
+      <button class="pasta-abrir" data-id="${pasta.id}">
+        <span class="pasta-icone">📁</span>
+        <span class="pasta-info">
+          <b>${escaparHtml(pasta.nome)}</b>
+          <small>${folhas} folha${folhas === 1 ? '' : 's'} · ${quando}</small>
+        </span>
+        <span class="pasta-seta">›</span>
+      </button>
+      <div class="pasta-acoes">
+        <button class="mini-btn" data-id="${pasta.id}" data-p="renomear">✎</button>
+        <button class="mini-btn" data-id="${pasta.id}" data-p="scan">📷</button>
+        <button class="mini-btn perigo" data-id="${pasta.id}" data-p="excluir">🗑</button>
+      </div>`;
+    alvo.appendChild(item);
+  }
+
+  alvo.onclick = ev => {
+    const acao = ev.target.closest('[data-p]');
+    if (acao) {
+      ev.stopPropagation();
+      const id = acao.dataset.id;
+      if (acao.dataset.p === 'renomear') pedirNome('Renomear pasta', App.pastas.find(p => p.id === id)?.nome || '', n => renomearPasta(id, n));
+      else if (acao.dataset.p === 'excluir') excluirPasta(id);
+      else if (acao.dataset.p === 'scan') { abrirPasta(id); abrirCamera(); }
+      return;
+    }
+    const abrir = ev.target.closest('.pasta-abrir');
+    if (abrir) abrirPasta(abrir.dataset.id);
+  };
+}
+
+function formatarData(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  const p = n => String(n).padStart(2, '0');
+  return mesmoDia
+    ? `hoje ${p(d.getHours())}h${p(d.getMinutes())}`
+    : `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+function escaparHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 /* =========================================================
    Navegação entre telas
@@ -25,37 +151,39 @@ function irPara(nome) {
 }
 
 function paginasCount() {
+  guardarNaPasta();
   const n = App.paginas.length;
   $('#contador').textContent = n + (n === 1 ? ' página' : ' páginas');
-  if (n > 1) {
-    // páginas com rotação virada sãoWide; avisa quando o doc já é grande
+  const sub = $('#editor-sub');
+  if (sub) sub.textContent = `${n} folha${n === 1 ? '' : 's'}`;
+
+  // avisa quando o documento já é grande (mas nunca bloqueia)
+  const aviso = $('#aviso-grande');
+  if (n > 1 && aviso) {
     const peso = App.paginas.reduce((s, p) => s + p.largura * p.altura, 0);
-    if (n >= 50 || peso > 260e6) {
-      $('#aviso-grande').hidden = false;
-    } else {
-      $('#aviso-grande').hidden = true;
-    }
-  } else {
-    $('#aviso-grande').hidden = true;
+    aviso.hidden = !(n >= 50 || peso > 260e6);
+  } else if (aviso) {
+    aviso.hidden = true;
   }
 }
 
 /* =========================================================
    Modelo de página
    ========================================================= */
-function criarPagina(canvasOriginal) {
+function criarPagina(canvasOriginal, nome) {
   return {
-    id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-    original: canvasOriginal,                 // canvas sem filtro nem rotação
+    id: novoId('p'),
+    nome: (nome || '').trim() || '',        // nome que o usuário deu à folha
+    original: canvasOriginal,               // canvas sem filtro nem rotação
     filtro: App.filtro,
     rotacao: 0,
-    url: null,                                // preenchido no render
+    url: null,                              // preenchido no render
     largura: canvasOriginal.width,
     altura: canvasOriginal.height,
-    async canvasBase() {                      // original + filtro atual
+    async canvasBase() {                    // original + filtro atual
       return aplicarFiltro(this.original, this.filtro);
     },
-    async canvasFinal() {                     // + rotação
+    async canvasFinal() {                   // + rotação
       return rotacionarCanvas(await this.canvasBase(), this.rotacao);
     },
     descartar() { if (this.url) URL.revokeObjectURL(this.url); }
@@ -79,13 +207,28 @@ function invalidarUrl(pagina) {
 }
 
 /**
- * Adiciona uma página a partir de um canvas já pronto.
- * Nenhum limite de quantidade: o app aceita documentos de 1 ou de centenas de folhas.
+ * Garante que existe uma pasta aberta (cria a primeira se não houver).
+ * É por aqui que a pessoa sempre acaba: nunca fica "solto" sem pasta.
  */
-async function adicionarPagina(canvas) {
-  const pagina = criarPagina(canvas);
+function garantirPasta() {
+  if (App.pastaAtualId && pastaAtual()) return pastaAtual();
+  if (!App.pastas.length) criarPasta('Meu primeiro documento');
+  const primeira = App.pastas[0];
+  App.pastaAtualId = primeira.id;
+  App.paginas = primeira.paginas || (primeira.paginas = []);
+  return primeira;
+}
+
+/**
+ * Adiciona uma folha a partir de um canvas já pronto.
+ * Nenhum limite de quantidade: pode digitalizar 1 ou centenas de folhas.
+ */
+async function adicionarPagina(canvas, nome) {
+  if (!garantirPasta()) return null;
+  const pagina = criarPagina(canvas, nome);
   App.paginas.push(pagina);
   paginasCount();
+  renderPastas();
   agendarSalvamento();
   return pagina;
 }
@@ -123,18 +266,23 @@ const DICAS = {
    ========================================================= */
 async function importarArquivos(arquivos) {
   if (!arquivos || !arquivos.length) return;
+  garantirPasta();
   await comCarregando(`Lendo ${arquivos.length} foto(s)…`, async () => {
+    let i = 0;
     for (const arq of arquivos) {
       if (!arq.type.startsWith('image/')) continue;
       try {
         const img = await carregarImagem(arq);
-        await adicionarPagina(canvasLimitado(img, App.qualidade));
+        // já dá um nome a cada folha: o número do arquivo
+        await adicionarPagina(canvasLimitado(img, App.qualidade), `Folha ${++i}`);
       } catch (e) {
         aviso('Não consegui ler uma das fotos.');
       }
     }
   });
+  renderPastas();
   irPara('editor');
+  renderEditor();
 }
 
 /* =========================================================
@@ -217,7 +365,7 @@ async function capturar() {
     let canvas = bruto;
     if (quadroDeitado && telaEmPe) canvas = rotacionarCanvas(bruto, 90);
     canvas = canvasLimitado(canvas, App.qualidade);
-    await adicionarPagina(canvas);
+    await adicionarPagina(canvas, `Folha ${App.paginas.length + 1}`);
   });
 
   paginasCount();
@@ -227,14 +375,18 @@ async function capturar() {
 /* =========================================================
    Editor: lista de páginas
    ========================================================= */
-/** Desenha o cartão de uma página na lista. */
+/** Desenha o cartão de uma folha na lista. */
 function cartaoPagina(p, i, total) {
+  const nome = p.nome || `Folha ${i + 1}`;
   const card = document.createElement('div');
   card.className = 'pagina';
   card.innerHTML = `
-    <div class="mini"><img alt="Página ${i + 1}"></div>
+    <div class="mini"><img alt="${escaparHtml(nome)}"></div>
     <div class="info">
-      <div class="num">Página ${i + 1} <small>${p.largura}×${p.altura}</small></div>
+      <div class="num">
+        <button class="nome-folha" data-a="renomear">✎ ${escaparHtml(nome)}</button>
+        <small>${i + 1}/${total}</small>
+      </div>
       <div class="grade-botoes">
         <button class="mini-btn" data-a="girar">⟳</button>
         <button class="mini-btn" data-a="auto">✂</button>
@@ -248,7 +400,7 @@ function cartaoPagina(p, i, total) {
     </div>`;
   card.querySelector('.mini').addEventListener('click', () => abrirModalPagina(p.id));
   card.addEventListener('click', ev => {
-    const btn = ev.target.closest('.mini-btn');
+    const btn = ev.target.closest('[data-a]');
     if (!btn || btn.disabled) return;
     acaoPagina(p.id, btn.dataset.a);
   });
@@ -256,7 +408,7 @@ function cartaoPagina(p, i, total) {
 }
 
 /**
- * Lista as páginas mostrando no máximo 60 por vez (miniaturas em memória são caras).
+ * Lista as folhas mostrando no máximo 60 por vez (miniaturas em memória são caras).
  * Documentos grandes continuam inteiros: a lista só deixa de mostrar até você pedir mais.
  */
 const PAGINAS_POR_VEZ = 60;
@@ -265,13 +417,15 @@ let quantasMostradas = PAGINAS_POR_VEZ;
 async function renderEditor() {
   const lista = $('#lista-paginas');
   lista.innerHTML = '';
-  $('#editor-vazio').hidden = App.paginas.length > 0;
-  $('#editor-titulo').textContent = App.paginas.length
-    ? `${App.paginas.length} página${App.paginas.length > 1 ? 's' : ''}`
-    : 'Minhas páginas';
+  guardarNaPasta();
+
+  const pasta = pastaAtual();
+  const total = App.paginas.length;
+  $('#editor-vazio').hidden = total > 0;
+  $('#editor-titulo').textContent = pasta ? pasta.nome : 'Minhas páginas';
+  $('#editor-sub').textContent = `${total} folha${total === 1 ? '' : 's'}`;
   atualizarBotaoFiltro();
 
-  const total = App.paginas.length;
   const limite = Math.min(total, quantasMostradas);
 
   for (let i = 0; i < limite; i++) {
@@ -288,7 +442,7 @@ async function renderEditor() {
   if (limite < total) {
     const mais = document.createElement('button');
     mais.className = 'btn-linha';
-    mais.textContent = `Mostrar mais ${Math.min(PAGINAS_POR_VEZ, total - limite)} páginas (de ${total})`;
+    mais.textContent = `Mostrar mais ${Math.min(PAGINAS_POR_VEZ, total - limite)} folhas (de ${total})`;
     mais.addEventListener('click', () => {
       quantasMostradas += PAGINAS_POR_VEZ;
       renderEditor();
@@ -316,6 +470,10 @@ async function acaoPagina(id, acao) {
       invalidarUrl(p);
       renderEditor();
       agendarSalvamento();
+      break;
+
+    case 'renomear':
+      renomearFolha(id, i);
       break;
 
     case 'ant':
@@ -362,7 +520,9 @@ function mostrarStatus(texto, salvando) {
 }
 
 function agendarSalvamento() {
-  if (!App.paginas.length) {
+  guardarNaPasta();
+  const temFolhas = App.pastas.some(p => (p.paginas || []).length);
+  if (!temFolhas) {
     clearTimeout(timerSalvar);
     mostrarStatus('', false);
     DB.limparSessao();
@@ -375,18 +535,27 @@ function agendarSalvamento() {
 
 async function salvarSessao() {
   try {
-    const itens = [];
-    for (const p of App.paginas) {
-      const blob = await canvasParaBlob(p.original, 'image/jpeg', 0.86);
-      itens.push({ blob, largura: p.largura, altura: p.altura, rotacao: p.rotacao, filtro: p.filtro });
+    guardarNaPasta();
+    const pastas = [];
+    for (const pasta of App.pastas) {
+      const itens = [];
+      for (const p of (pasta.paginas || [])) {
+        const blob = await canvasParaBlob(p.original, 'image/jpeg', 0.86);
+        itens.push({
+          blob, largura: p.largura, altura: p.altura,
+          rotacao: p.rotacao, filtro: p.filtro, nome: p.nome || ''
+        });
+      }
+      pastas.push({ id: pasta.id, nome: pasta.nome, criadaEm: pasta.criadaEm, paginas: itens });
     }
     await DB.salvarSessao({
-      versao: 1,
+      versao: 2,
       quando: Date.now(),
       qualidade: App.qualidade,
       filtro: App.filtro,
       modoPagina: App.modoPagina,
-      paginas: itens
+      pastaAtualId: App.pastaAtualId,
+      pastas
     });
     const info = await DB.espaco();
     const uso = info && info.usage ? ` · ${(info.usage / 1048576).toFixed(1)} MB usados` : '';
@@ -399,40 +568,135 @@ async function salvarSessao() {
 async function restaurarSessao() {
   let dados;
   try { dados = await DB.lerSessao(); } catch { return false; }
-  if (!dados || !Array.isArray(dados.paginas) || !dados.paginas.length) return false;
+  if (!dados) return false;
 
+  // formato antigo (v1): uma pasta só
+  if (!Array.isArray(dados.pastas)) {
+    if (!Array.isArray(dados.paginas) || !dados.paginas.length) return false;
+    dados = { versao: 2, pastaAtualId: null, pastas: [{ id: novoId('d'), nome: 'Meu documento', criadaEm: Date.now(), paginas: dados.paginas }] };
+  }
+  if (!dados.pastas.length) return false;
+
+  let total = 0;
   await comCarregando('Recuperando seu trabalho…', async () => {
-    for (const it of dados.paginas) {
-      if (!it.blob) continue;
-      try {
-        const img = await carregarImagem(it.blob);
-        const c = novoCanvas(it.largura || img.naturalWidth, it.altura || img.naturalHeight);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const p = criarPagina(c);
-        p.rotacao = it.rotacao || 0;
-        p.filtro = it.filtro || App.filtro;
-        App.paginas.push(p);
-      } catch { /* pula página corrompida */ }
+    for (const info of dados.pastas) {
+      const pasta = { id: info.id || novoId('d'), nome: info.nome || 'Documento', criadaEm: info.criadaEm || Date.now(), paginas: [] };
+      for (const it of (info.paginas || [])) {
+        if (!it.blob) continue;
+        try {
+          const img = await carregarImagem(it.blob);
+          const c = novoCanvas(it.largura || img.naturalWidth, it.altura || img.naturalHeight);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          const p = criarPagina(c, it.nome || '');
+          p.rotacao = it.rotacao || 0;
+          p.filtro = it.filtro || App.filtro;
+          pasta.paginas.push(p);
+          total++;
+        } catch { /* pula folha corrompida */ }
+      }
+      App.pastas.push(pasta);
     }
   });
 
-  if (!App.paginas.length) return false;
-  paginasCount();
-  irPara('editor');
-  aviso(`Recuperei ${App.paginas.length} página(s) da sua última sessão.`, 3600);
+  if (!total) { App.pastas = []; return false; }
+
+  // abre a pasta que estava sendo usada
+  const alvo = App.pastas.find(p => p.id === dados.pastaAtualId) || App.pastas.find(p => p.paginas.length) || App.pastas[0];
+  abrirPasta(alvo.id);
+  renderPastas();
+  aviso(`Recuperei ${total} folha(s) em ${App.pastas.length} pasta(s).`, 3800);
   return true;
 }
 
 function limparTudo() {
   if (!App.paginas.length) return;
-  if (!confirm('Apagar todas as páginas? (some do aparelho)')) return;
+  const pasta = pastaAtual();
+  if (!confirm(`Apagar as ${App.paginas.length} folha(s) da pasta "${pasta ? pasta.nome : ''}"?`)) return;
   App.paginas.forEach(p => p.descartar());
   App.paginas = [];
+  guardarNaPasta();
   paginasCount();
   clearTimeout(timerSalvar);
-  DB.limparSessao();
-  mostrarStatus('', false);
+  if (App.pastas.some(p => (p.paginas || []).length)) agendarSalvamento();
+  else { DB.limparSessao(); mostrarStatus('', false); }
   renderEditor();
+  renderPastas();
+}
+
+/* =========================================================
+   Dar nome (pasta ou folha)
+   ========================================================= */
+let destinoNome = null;   // função chamada com o valor digitado
+
+function pedirNome(titulo, valorInicial, aoSalvar, sugestoes = [], dica = '') {
+  destinoNome = aoSalvar;
+  $('#nome-titulo').textContent = titulo;
+  $('#nome-dica').textContent = dica;
+  const campo = $('#campo-nome');
+  campo.value = valorInicial || '';
+
+  const alvo = $('#sugestoes-nome');
+  alvo.innerHTML = '';
+  for (const s of sugestoes) {
+    const chip = document.createElement('button');
+    chip.className = 'chip';
+    chip.textContent = s;
+    chip.addEventListener('click', () => { campo.value = s; campo.focus(); });
+    alvo.appendChild(chip);
+  }
+  alvo.hidden = !sugestoes.length;
+
+  $('#modal-nome').hidden = false;
+  setTimeout(() => campo.focus(), 60);
+}
+
+function confirmarNome() {
+  const valor = $('#campo-nome').value.trim();
+  $('#modal-nome').hidden = true;
+  const aplicar = destinoNome;
+  destinoNome = null;
+  if (aplicar) aplicar(valor);
+}
+
+function renomearFolha(id, indice) {
+  const p = acharPagina(id);
+  if (!p) return;
+  const pasta = pastaAtual();
+  const sugere = [];
+  if (pasta && pasta.nome) sugere.push(pasta.nome);
+  sugere.push(`Folha ${indice + 1}`);
+  pedirNome(
+    `Nome da folha ${indice + 1}`,
+    p.nome || `Folha ${indice + 1}`,
+    valor => {
+      p.nome = valor || `Folha ${indice + 1}`;
+      guardarNaPasta();
+      renderEditor();
+      agendarSalvamento();
+    },
+    sugere,
+    'O nome fica salvo com a folha. Exemplos: Capa, Assinatura, Anexo 2.'
+  );
+}
+
+/** Renomeia todas em sequência: "Recibo" vira Recibo 1, Recibo 2, … */
+function renomearTodas() {
+  const pasta = pastaAtual();
+  const base = (pasta && pasta.nome) || 'Folha';
+  pedirNome(
+    'Nome em sequência',
+    base,
+    valor => {
+      const limpo = (valor || 'Folha').trim() || 'Folha';
+      App.paginas.forEach((p, i) => { p.nome = `${limpo} ${i + 1}`; });
+      guardarNaPasta();
+      renderEditor();
+      agendarSalvamento();
+      aviso(`Folhas renomeadas: ${limpo} 1, ${limpo} 2…`);
+    },
+    [pasta ? pasta.nome : 'Folha', 'Capa', 'Folha'],
+    'Todas as folhas recebem esse nome com numeração automática.'
+  );
 }
 
 async function recorteAutomatico(lista) {
@@ -481,8 +745,8 @@ function fecharModalPagina() {
 async function compartilharImagemDaPagina(pagina, indice) {
   await comCarregando('Preparando a imagem…', async () => {
     const blob = await canvasParaBlob(await pagina.canvasFinal(), 'image/jpeg', 0.92);
-    const nome = nomeComData(`Pagina-${indice + 1}`, 'jpg');
-    await compartilharArquivo(blob, nome, `Página ${indice + 1}`);
+    const nome = nomeDeArquivo(pagina.nome || `Folha ${indice + 1}`, 'jpg');
+    await compartilharArquivo(blob, nome, pagina.nome || `Folha ${indice + 1}`);
   });
   if (ehApple()) aviso('No menu de compartilhamento escolha “Salvar Imagem” para ir ao iCloud Fotos.', 4200);
 }
@@ -491,12 +755,13 @@ function abrirFluxoFotos() {
   const alvo = $('#passos-fotos');
   alvo.innerHTML = '';
   App.paginas.forEach((p, i) => {
+    const rotulo = p.nome || `Folha ${i + 1}`;
     urlDaPagina(p).then(url => {
       const div = document.createElement('div');
       div.className = 'passo';
       div.innerHTML = `
-        <img src="${url}" alt="Página ${i + 1}">
-        <div class="n"><b>Página ${i + 1}</b><small>Toque em enviar e depois em “Salvar Imagem”.</small></div>
+        <img src="${url}" alt="${escaparHtml(rotulo)}">
+        <div class="n"><b>${escaparHtml(rotulo)}</b><small>Toque em enviar e depois em “Salvar Imagem”.</small></div>
         <button class="mini-btn" data-i="${i}">Enviar</button>`;
       div.querySelector('button').addEventListener('click', async ev => {
         ev.stopPropagation();
@@ -691,60 +956,172 @@ function loadImageFromCanvas(canvas) {
 }
 
 /* =========================================================
-   Gerar e enviar o PDF
+   Enviar
+   ------------------------------------------------------------
+   Foto por foto o WhatsApp fica poluído. A ideia é mandar
+   sempre UM arquivo: 1 PDF por pasta, ou tudo junto num .zip —
+   que chega na outra pessoa como uma pastinha de documentos.
    ========================================================= */
-async function gerarPDF() {
-  if (!App.paginas.length) { aviso('Adicione pelo menos uma página.'); return; }
 
-  const total = App.paginas.length;
-  const nome = nomeComData('Documento', 'pdf');
-
-  // processa em blocos, com progresso visível e liberando memória entre blocos
-  carregando(true, `Preparando página 1 de ${total}…`);
-  await new Promise(r => setTimeout(r, 30));
-
+/** Gera o PDF de uma lista de folhas. */
+async function pdfDasPaginas(lista, titulo) {
   const itens = [];
-  const inicio = Date.now();
-
-  try {
-    for (let i = 0; i < total; i++) {
-      const p = App.paginas[i];
-      const canvas = await p.canvasBase();
-      const jpeg = await canvasParaBlob(canvas, 'image/jpeg', 0.88);
-      itens.push({
-        bytes: new Uint8Array(await jpeg.arrayBuffer()),
-        width: canvas.width,
-        height: canvas.height,
-        rotation: p.rotacao
-      });
-      $('#carregando-txt').textContent = `Preparando página ${i + 1} de ${total}…`;
-
-      // a cada 15 páginas: descarta os canvases e recua as miniaturas
-      if (i % 15 === 14) {
-        if (typeof canvas.width === 'number') { canvas.width = 1; canvas.height = 1; }
-        await new Promise(r => setTimeout(r));
-      }
-    }
-
-    carregando(true, `Montando o PDF de ${total} página(s)…`);
-    await new Promise(r => setTimeout(r));
-    const blob = montarPDF(itens, { modo: App.modoPagina, titulo: 'Documento digitalizado' });
-    itens.length = 0;
-
-    const segundos = ((Date.now() - inicio) / 1000).toFixed(1);
-    const mb = (blob.size / 1048576).toFixed(1);
-    await compartilharArquivo(blob, nome, 'Documento digitalizado');
-
-    if (ehApple()) {
-      aviso(`PDF de ${total} página(s), ${mb} MB, pronto em ${segundos}s. Para guardar no iCloud: “Armazenar em Arquivos”.`, 5000);
-    } else {
-      aviso(`PDF de ${total} página(s) criado (${mb} MB).`, 4000);
-    }
-  } catch (e) {
-    aviso('Erro ao montar o PDF: ' + (e && e.message ? e.message : 'tente novamente'));
-  } finally {
-    carregando(false);
+  for (let i = 0; i < lista.length; i++) {
+    const p = lista[i];
+    const canvas = await p.canvasBase();
+    const jpeg = await canvasParaBlob(canvas, 'image/jpeg', 0.88);
+    itens.push({
+      bytes: new Uint8Array(await jpeg.arrayBuffer()),
+      width: canvas.width,
+      height: canvas.height,
+      rotation: p.rotacao
+    });
+    if (i % 15 === 14) await new Promise(r => setTimeout(r));   // respira o iPhone
   }
+  return montarPDF(itens, { modo: App.modoPagina, titulo: titulo || 'Documento digitalizado' });
+}
+
+/** Nome de arquivo seguro, feito a partir do nome da pasta. */
+function nomeDeArquivo(base, extensao) {
+  const limpo = String(base || 'Documento').replace(/[\\/:*?"<>|]/g, '-').trim().slice(0, 60) || 'Documento';
+  return `${limpo}.${extensao}`;
+}
+
+/** Envia a pasta aberta como um PDF (um arquivo só). */
+async function enviarPasta() {
+  if (!App.paginas.length) { aviso('Esta pasta ainda não tem folhas.'); return; }
+  const pasta = pastaAtual();
+  const nomeBase = pasta ? pasta.nome : 'Documento';
+  const total = App.paginas.length;
+
+  const blob = await comCarregando(`Gerando o PDF de ${total} folha(s)…`, async () =>
+    pdfDasPaginas(App.paginas, nomeBase));
+
+  await compartilharArquivo(blob, nomeDeArquivo(nomeBase, 'pdf'), nomeBase);
+  const mb = (blob.size / 1048576).toFixed(1);
+  aviso(
+    `PDF "${nomeBase}.pdf" (${mb} MB) pronto. ` +
+    (ehApple() ? 'No menu do iPhone, "Armazenar em Arquivos" guarda no iCloud.' : ''),
+    4600
+  );
+}
+
+/**
+ * Envia TUDO de uma vez: um PDF por pasta, dentro de um .zip.
+ * A pessoa recebe um arquivo só e, ao abrir, vê uma pasta por documento.
+ */
+async function enviarTudo() {
+  guardarNaPasta();
+  const comFolhas = App.pastas.filter(p => (p.paginas || []).length);
+  if (!comFolhas.length) { aviso('Não há folhas digitalizadas ainda.'); return; }
+  const totalFolhas = comFolhas.reduce((s, p) => s + p.paginas.length, 0);
+
+  const blob = await comCarregando(`Preparando ${comFolhas.length} documento(s)…`, async () => {
+    const arquivos = [];
+    for (const pasta of comFolhas) {
+      $('#carregando-txt').textContent = `Gerando o PDF de "${pasta.nome}"…`;
+      const pdf = await pdfDasPaginas(pasta.paginas, pasta.nome);
+      arquivos.push({
+        nome: nomeDeArquivo(pasta.nome, 'pdf'),
+        pasta: pasta.nome,                       // vira subpasta dentro do zip
+        bytes: new Uint8Array(await pdf.arrayBuffer())
+      });
+      await new Promise(r => setTimeout(r));
+    }
+    $('#carregando-txt').textContent = 'Montando a pastinha (.zip)…';
+    return criarZip(arquivos);
+  });
+
+  const nomeZip = nomeComData('Documentos', 'zip');
+  await compartilharArquivo(blob, nomeZip, 'Meus documentos digitalizados');
+
+  const mb = (blob.size / 1048576).toFixed(1);
+  aviso(
+    `Pastinha com ${comFolhas.length} documento(s) e ${totalFolhas} folha(s), ${mb} MB. ` +
+    (ehApple() ? 'A pessoa abre e vê uma pasta por documento.' : 'A pessoa só precisa descompactar.'),
+    5200
+  );
+}
+
+/**
+ * Envia os PDFs de todas as pastas como vários arquivos na mesma mensagem.
+ * No WhatsApp isso chega como um envio único com N documentos: a pessoa toca
+ * e abre, sem precisar descompactar nada.
+ */
+async function enviarSeparado() {
+  guardarNaPasta();
+  const comFolhas = App.pastas.filter(p => (p.paginas || []).length);
+  if (!comFolhas.length) { aviso('Não há folhas digitalizadas ainda.'); return; }
+
+  const arquivos = await comCarregando(`Gerando ${comFolhas.length} PDF(s)…`, async () => {
+    const lista = [];
+    for (const pasta of comFolhas) {
+      $('#carregando-txt').textContent = `Gerando o PDF de "${pasta.nome}"…`;
+      const pdf = await pdfDasPaginas(pasta.paginas, pasta.nome);
+      lista.push(new File([pdf], nomeDeArquivo(pasta.nome, 'pdf'), { type: 'application/pdf' }));
+      await new Promise(r => setTimeout(r));
+    }
+    return lista;
+  });
+
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: arquivos })) {
+    try {
+      await navigator.share({ files: arquivos, title: 'Meus documentos' });
+      aviso(`${arquivos.length} documento(s) enviados de uma vez.`, 4000);
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;   // a pessoa cancelou
+    }
+  }
+
+  // aparelho sem suporte a vários arquivos: cai para o .zip, que também é fácil
+  const zip = await comCarregando('Montando a pastinha (.zip)…', async () => {
+    const itens = [];
+    for (const arq of arquivos) {
+      itens.push({
+        nome: arq.name,
+        pasta: arq.name.replace(/\.pdf$/i, ''),
+        bytes: new Uint8Array(await arq.arrayBuffer())
+      });
+    }
+    return criarZip(itens);
+  });
+  await compartilharArquivo(zip, nomeComData('Documentos', 'zip'), 'Meus documentos');
+  aviso('Este aparelho não envia vários arquivos juntos: mandei uma pastinha .zip.', 4200);
+}
+
+async function gerarPDF() {
+  await enviarPasta();
+}
+
+/* =========================================================
+   Cor do aplicativo (azul ou rosa) — escolha da pessoa
+   ========================================================= */
+function aplicarTema(tema) {
+  const escolha = tema === 'rosa' ? 'rosa' : 'azul';
+  document.body.classList.toggle('tema-rosa', escolha === 'rosa');
+  document.body.classList.toggle('tema-azul', escolha === 'azul');
+
+  $$('.tom').forEach(b => b.classList.toggle('ativo', b.dataset.tema === escolha));
+
+  // a cor do navegador (barra do sistema no iPhone)
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', escolha === 'rosa' ? '#160a13' : '#0b1220');
+
+  CONFIG.gravar({ tema: escolha });
+  return escolha;
+}
+
+function ligarEscolhaDeCor() {
+  const caixa = $('.escolha-cor');
+  if (!caixa) return;
+  caixa.addEventListener('click', ev => {
+    const botao = ev.target.closest('.tom');
+    if (!botao) return;
+    const escolha = aplicarTema(botao.dataset.tema);
+    aviso(escolha === 'rosa' ? 'Cor rosa ativada.' : 'Cor azul ativada.', 1600);
+  });
+  aplicarTema(CONFIG.ler().tema || 'azul');
 }
 
 /* =========================================================
@@ -807,6 +1184,7 @@ function abrirQR() {
    ========================================================= */
 function iniciar() {
   carregarPreferencias();
+  ligarEscolhaDeCor();
 
   ligarChips('#chips-qualidade', chip => {
     App.qualidade = Number(chip.dataset.q);
@@ -863,6 +1241,16 @@ function iniciar() {
     importarArquivos(ev.target.files);
     ev.target.value = '';
   });
+  $('#btn-nova-pasta').addEventListener('click', () => {
+    pedirNome('Nome da pasta', '', valor => {
+      const pasta = criarPasta(valor);
+      App.pastaAtualId = pasta.id;
+      App.paginas = pasta.paginas;
+      renderPastas();
+      agendarSalvamento();
+      aviso(`Pasta "${pasta.nome}" criada. Agora é só digitalizar.`);
+    }, ['Contrato', 'Recibo', 'Documentos pessoais', 'Trabalho'], 'Cada pasta vira um documento separado, com as suas folhas.');
+  });
 
   // câmera
   $('#btn-fechar-camera').addEventListener('click', () => { pararCamera(); irPara(App.paginas.length ? 'editor' : 'home'); });
@@ -872,11 +1260,27 @@ function iniciar() {
   $('#btn-ver-paginas').addEventListener('click', () => irPara('editor'));
 
   // editor
-  $('#btn-voltar-home').addEventListener('click', () => irPara('home'));
+  $('#btn-voltar-home').addEventListener('click', () => { guardarNaPasta(); renderPastas(); irPara('home'); });
   $('#btn-mais').addEventListener('click', abrirCamera);
   $('#btn-limpar').addEventListener('click', limparTudo);
   $('#btn-gerar-pdf').addEventListener('click', gerarPDF);
   $('#btn-fotos').addEventListener('click', abrirFluxoFotos);
+  $('#btn-zip').addEventListener('click', enviarTudo);
+  $('#btn-separado').addEventListener('click', enviarSeparado);
+  $('#btn-renomear-pasta').addEventListener('click', () => {
+    const pasta = pastaAtual();
+    if (!pasta) return;
+    pedirNome('Renomear pasta', pasta.nome, valor => renomearPasta(pasta.id, valor),
+      [pasta.nome, 'Contrato', 'Recibo']);
+  });
+  $('#btn-renomear-tudo').addEventListener('click', renomearTodas);
+
+  // modal de dar nome
+  $('#btn-nome-ok').addEventListener('click', confirmarNome);
+  $('#btn-nome-cancelar').addEventListener('click', () => { $('#modal-nome').hidden = true; destinoNome = null; });
+  $('#campo-nome').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); confirmarNome(); }
+  });
 
   // modal página
   $('#btn-pagina-fechar').addEventListener('click', fecharModalPagina);
@@ -891,6 +1295,7 @@ function iniciar() {
     if (btn.dataset.a === 'girar') await acaoPagina(id, 'girar');
     else if (btn.dataset.a === 'recortar') await acaoPagina(id, 'recortar');
     else if (btn.dataset.a === 'auto') await acaoPagina(id, 'auto');
+    else if (btn.dataset.a === 'renomear') renomearFolha(id, i);
     else if (btn.dataset.a === 'imagem') await compartilharImagemDaPagina(p, i);
     else if (btn.dataset.a === 'excluir') await acaoPagina(id, 'excluir');
   });
@@ -934,6 +1339,7 @@ function iniciar() {
   });
 
   paginasCount();
+  renderPastas();
   renderEditor();
   atualizarBotaoFiltro();
   registrarServiceWorker();
