@@ -196,7 +196,9 @@ function acharPagina(id) {
 
 async function urlDaPagina(pagina) {
   if (!pagina.url) {
-    const blob = await canvasParaBlob(await pagina.canvasFinal(), 'image/jpeg', 0.82);
+    // 0.94: qualidade alta — a mesma imagem serve a miniatura e o zoom
+    // do modal; com pressão baixa o texto fica com "xuxa" ao ampliar.
+    const blob = await canvasParaBlob(await pagina.canvasFinal(), 'image/jpeg', 0.94);
     pagina.url = URL.createObjectURL(blob);
   }
   return pagina.url;
@@ -570,6 +572,7 @@ async function abrirCamera() {
     await video.play();
     await video.play().catch(() => {});
     verificarLanterna();
+    conferirResolucaoCamera();
     ligarDeteccao();
   } catch (e) {
     aviso('Não consegui acessar a câmera. Autorize o acesso nas configurações do site.', 4200);
@@ -581,6 +584,28 @@ function verificarLanterna() {
   const track = App.stream && App.stream.getVideoTracks()[0];
   const caps = track && track.getCapabilities ? track.getCapabilities() : {};
   $('#btn-flash').hidden = !('torch' in caps);
+}
+
+/**
+ * Confere quantos pixels a câmera realmente entregou.
+ * Se vier apertado, tenta aumentar; se não der, avisa para aproximar a folha —
+ * poucos pixels na origem = texto ilegível quando a pessoa amplia a foto.
+ */
+function conferirResolucaoCamera() {
+  const track = App.stream && App.stream.getVideoTracks()[0];
+  if (!track || !track.getSettings) return;
+  const s = track.getSettings();
+  if (!s.width || s.width >= 2000) return;
+  track.applyConstraints({ width: { ideal: 4032 }, height: { ideal: 3024 } })
+    .then(() => {
+      const s2 = track.getSettings();
+      if (s2.width && s2.width < 1600) {
+        aviso(`Câmera entregou só ${s2.width} px. Aproxime a folha para o texto sair nítido.`, 5200);
+      }
+    })
+    .catch(() => {
+      aviso(`Câmera limitada a ${s.width} px. Aproxime a folha para o texto sair nítido.`, 5200);
+    });
 }
 
 function pararCamera() {
@@ -1007,13 +1032,150 @@ function abrirModalPagina(id) {
   if (!p) return;
   const i = App.paginas.indexOf(p);
   $('#pagina-titulo').textContent = `Página ${i + 1}`;
-  $('#img-pagina-modal').src = p.url;
+  const img = $('#img-pagina-modal');
+  // garante a versão em alta qualidade (gera o blob se ainda não existir)
+  img.src = '';
+  urlDaPagina(p).then(url => {
+    if (App.paginaAtualModal === id) img.src = url;
+  });
+  ZoomPreview.resetar();
   $('#modal-pagina').hidden = false;
 }
 
 function fecharModalPagina() {
   $('#modal-pagina').hidden = true;
   App.paginaAtualModal = null;
+  ZoomPreview.resetar();
+}
+
+/* =========================================================
+   Zoom por gesto na prévia da página
+   ------------------------------------------------------------
+   O zoom do navegador re-amostra a imagem (fica borrada).
+   Aqui a pinça muda a LARGURA do <img>: o navegador renderiza
+   de novo direto do arquivo original — o texto fica nítido.
+   ========================================================= */
+const ZoomPreview = {
+  escala: 1,
+  x: 0,
+  y: 0,
+  baseW: 0,          // largura renderizada em escala 1
+  baseEscala: 1,
+  distBase: 0,
+  xBase: 0,
+  yBase: 0,
+  x0: 0,
+  y0: 0,
+  arrastando: false,
+
+  resetar() {
+    const img = $('#img-pagina-modal');
+    this.escala = 1; this.x = 0; this.y = 0;
+    this.baseW = 0; this.arrastando = false; this.distBase = 0;
+    if (img) {
+      img.style.width = '';
+      img.style.height = '';
+      img.style.maxWidth = '';
+      img.style.maxHeight = '';
+      img.style.transform = '';
+    }
+  }
+};
+
+function ligarZoomPreview() {
+  const alvo = $('#modal-pagina .preview-pagina');
+  const img = $('#img-pagina-modal');
+  if (!alvo || !img) return;
+  const z = ZoomPreview;
+
+  const aplicar = () => {
+    if (z.escala <= 1.02) {
+      img.style.width = ''; img.style.height = '';
+      img.style.maxWidth = ''; img.style.maxHeight = '';
+      img.style.transform = '';
+      z.escala = 1; z.x = 0; z.y = 0; z.baseW = 0;
+      return;
+    }
+    if (!z.baseW) z.baseW = img.offsetWidth;
+    // largura (não transform: scale) => o navegador re-renderiza nítido
+    img.style.maxWidth = 'none';
+    img.style.maxHeight = 'none';
+    img.style.width = (z.baseW * z.escala) + 'px';
+    img.style.height = 'auto';
+    img.style.transform = `translate(${Math.round(z.x)}px, ${Math.round(z.y)}px)`;
+  };
+
+  const limitar = () => {
+    z.escala = clamp(z.escala, 1, 6);
+    if (z.escala <= 1.02) { z.x = 0; z.y = 0; return; }
+    const w = z.baseW * z.escala;
+    const maxX = Math.max(0, (w - alvo.clientWidth) / 2 + 10);
+    z.x = clamp(z.x, -maxX, maxX);
+    const h = img.naturalWidth ? (img.naturalHeight / img.naturalWidth) * w : w;
+    const maxY = Math.max(0, (h - alvo.clientHeight) / 2 + 10);
+    z.y = clamp(z.y, -maxY, maxY);
+  };
+
+  const pontos = ev => Array.from(ev.touches).map(t => ({ x: t.clientX, y: t.clientY }));
+  const distancia = a => Math.hypot(a[1].x - a[0].x, a[1].y - a[0].y);
+
+  alvo.addEventListener('touchstart', ev => {
+    if (ev.touches.length === 2) {
+      z.distBase = distancia(pontos(ev)) || 1;
+      z.baseEscala = z.escala;
+      z.xBase = z.x; z.yBase = z.y;
+      z.arrastando = false;
+    } else if (ev.touches.length === 1 && z.escala > 1) {
+      z.arrastando = true;
+      z.xBase = z.x; z.yBase = z.y;
+      z.x0 = ev.touches[0].clientX; z.y0 = ev.touches[0].clientY;
+    }
+  }, { passive: true });
+
+  alvo.addEventListener('touchmove', ev => {
+    if (ev.touches.length === 2 && z.distBase > 0) {
+      z.escala = z.baseEscala * (distancia(pontos(ev)) / z.distBase);
+      limitar(); aplicar();
+      if (ev.cancelable) ev.preventDefault();
+    } else if (z.arrastando && ev.touches.length === 1) {
+      z.x = z.xBase + (ev.touches[0].clientX - z.x0);
+      z.y = z.yBase + (ev.touches[0].clientY - z.y0);
+      limitar(); aplicar();
+      if (ev.cancelable) ev.preventDefault();
+    }
+  }, { passive: false });
+
+  // toque duplo detectado à mão (o dblclick nem sempre dispara no iOS)
+  let ultimoToque = 0;
+  const fim = ev => {
+    if (ev.touches.length < 2) z.distBase = 0;
+    if (ev.touches.length === 0) {
+      z.arrastando = false;
+      const agora = Date.now();
+      if (agora - ultimoToque < 320 && !z.moveu) {
+        if (z.escala > 1) { z.escala = 1; z.x = 0; z.y = 0; }
+        else { z.escala = 2.5; z.x = 0; z.y = 0; }
+        aplicar();
+        ultimoToque = 0;
+      } else {
+        ultimoToque = agora;
+      }
+      z.moveu = false;
+    }
+  };
+  alvo.addEventListener('touchend', fim);
+  alvo.addEventListener('touchcancel', fim);
+
+  // marca se houve arrasto/pinça para não confundir com toque duplo
+  alvo.addEventListener('touchmove', () => { z.moveu = true; }, { passive: true });
+
+  // mouse (teste no computador): zoom com roda e toque duplo
+  alvo.addEventListener('wheel', ev => {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    z.escala = clamp(z.escala * (ev.deltaY < 0 ? 1.15 : 0.87), 1, 6);
+    limitar(); aplicar();
+  }, { passive: false });
 }
 
 /* =========================================================
@@ -1562,6 +1724,7 @@ function iniciar() {
   });
 
   // modal página
+  ligarZoomPreview();
   $('#btn-pagina-fechar').addEventListener('click', fecharModalPagina);
   $('#modal-pagina').addEventListener('click', async ev => {
     const btn = ev.target.closest('.btn-acao');
