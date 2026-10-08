@@ -32,10 +32,15 @@ O atalho para quem ainda não quiser instalar: na tela inicial do app, botão
 | Reordenar | Botões ◀ ▶ de cada página. |
 | Reordenar todas de uma vez | Toque numa miniatura para a página em tamanho grande. |
 | Melhorar a imagem | Automático (tira o amarelo), Cor, Tons de cinza ou Alto contraste. |
-| Gerar PDF | "Gerar e enviar PDF": sai o arquivo pronto para mandar. |
-| Salvar as fotos no iCloud | Botão "☁️ Fotos": uma por vez, e no menu do iPhone você toca em **Salvar Imagem**. |
+| Criar pastas | "📁 Nova pasta de documentos". Cada pasta é um documento separado (ex.: Contrato, Recibos, Trabalho). Nada se mistura. |
+| Dar nome às folhas | Toque em **✎** na folha. Ex.: Capa, Cláusulas, Assinatura. Para várias de uma vez: **🔢 Nome em sequência**. |
+| Enviar o PDF | **📄 PDF desta pasta**: 1 arquivo, nomeado com o nome da pasta. Melhor para um documento só. |
+| Enviar vários | **✉️ Separado**: 1 PDF de cada pasta, todos na mesma mensagem do WhatsApp. O cliente só toca e abre. |
+| Enviar tudo junto | **🗂 Tudo**: um `.zip` com uma pasta por documento. A pessoa abre e vê tudo arrumado. |
+| Salvar as fotos no iCloud | Botão **☁️ Fotos**: uma por vez, e no menu do iPhone você toca em **Salvar Imagem**. |
 | Guardar o PDF no iCloud | No menu de compartilhamento, escolha **Armazenar em Arquivos**. |
-| Não perder trabalho | Salva sozinho no aparelho. Fechou o app? Voltou e está tudo lá. |
+| Não perder trabalho | Salva sozinho no aparelho. Fechou o app? Voltou e está tudo lá, com as pastas e os nomes. |
+| Escolher a cor | Botões no topo: **azul** ou **rosa**. Fica salvo para as próximas vezes. |
 
 ---
 
@@ -125,8 +130,9 @@ scanner-pdf-iphone/
 │   ├── utils.js          utilidades (canvas, arquivos, avisos)
 │   ├── filters.js        melhoria de imagem e detecção de bordas
 │   ├── pdf.js            monta o PDF (sem bibliotecas externas)
+│   ├── zip.js            monta o .zip (sem bibliotecas externas)
 │   ├── db.js             salvamento automático no aparelho
-│   ├── app.js            telas, câmera, lista de páginas
+│   ├── app.js            telas, câmera, pastas e folhas
 │   └── vendor/qrcode.js  QR Code (MIT, Kazuhiko Arase)
 ├── icons/                ícones gerados por script
 └── tools/
@@ -136,8 +142,23 @@ scanner-pdf-iphone/
     └── opcional/         publicação por Actions (opcional)
 ```
 
-O PDF é montado à mão, sem nenhuma biblioteca externa — por isso funciona
-offline e o arquivo sai leve.
+O PDF e o .zip são montados à mão, sem nenhuma biblioteca externa — por isso
+funcionam offline e os arquivos saem leves.
+
+### Por que o WhatsApp não recebe "pastas"
+
+O WhatsApp trabalha com **arquivos**, não com pastas. Por isso o app nunca manda
+folha por folha: ele manda **um PDF por documento** (nomeado com o nome da pasta).
+Se quiser levar tudo em um único item, o botão **🗂 Tudo** gera um `.zip` com uma
+subpasta por documento — que é o mais perto de "mandar uma pastinha" que dá, e
+abre nativamente no iPhone e no Android.
+
+### Por que os arquivos têm `?v=4` no endereço
+
+O `?v=4` no `index.html` é o que garante que quem já instalou o app na tela de
+início receba as atualizações. Sem isso, o navegador guardaria a versão antiga
+em cache e a pessoa continuaria vendo um app desatualizado. Ao publicar uma
+mudança, troque o `4` por `5` no `index.html` e no `sw.js`.
 
 ---
 
