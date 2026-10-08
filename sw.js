@@ -48,10 +48,15 @@ self.addEventListener('fetch', evento => {
   /* Estratégia: rede primeiro, cache como reserva.
      Assim o app atualizado chega na hora (importante para quem
      já instalou na tela de início) e continua funcionando sem
-     internet, porque a segunda visita usa o cache. */
+     internet, porque a segunda visita usa o cache.
+
+     O `cache: 'reload'` na navegação é essencial: sem ele o
+     navegador entrega o index.html velho do próprio cache e a
+     atualização não chega nunca. */
   evento.respondWith((async () => {
     try {
-      const resposta = await fetch(req);
+      const opcoes = req.mode === 'navigate' ? { cache: 'reload' } : undefined;
+      const resposta = await fetch(req, opcoes);
       if (resposta && resposta.ok) {
         const copia = resposta.clone();
         caches.open(VERSAO).then(c => c.put(req, copia));
