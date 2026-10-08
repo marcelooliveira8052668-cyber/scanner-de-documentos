@@ -25,6 +25,7 @@ O atalho para quem ainda não quiser instalar: na tela inicial do app, botão
 | Função | Como usar |
 |---|---|
 | Digitalizar com a câmera | Botão azul "Escanear com a câmera". Fotografe quantas folhas quiser — não tem limite. |
+| Enquadrar automático | A câmera **procura a folha sozinha**: o guia se ajusta no papel, a borda fica verde quando trava no lugar e a foto sai **já recortada**. O botão ⌗ no topo liga e desliga. |
 | Usar fotos do iCloud | "Importar fotos" → escolhe da nuvem ou do rolo da câmera, várias de uma vez. |
 | Recortar automático | Remove a mesa e deixa só o papel. Usa o botão ✂. |
 | Recorte manual | Botão ⛶: arraste os cantos com o dedo. |
@@ -123,12 +124,12 @@ Tamanho da página no PDF: **A4**, **Carta** ou **Tamanho da foto** (não deform
 ```
 scanner-pdf-iphone/
 ├── index.html            interface
-├── styles.css            visual
+├── styles.css            visual e as duas cores (azul/rosa)
 ├── manifest.json         ícone e instalação na tela de início
-├── sw.js                 service worker (funcionamento offline)
+├── sw.js                 service worker (offline e atualizações)
 ├── js/
 │   ├── utils.js          utilidades (canvas, arquivos, avisos)
-│   ├── filters.js        melhoria de imagem e detecção de bordas
+│   ├── filters.js        melhoria de imagem, detecção de bordas, enquadramento
 │   ├── pdf.js            monta o PDF (sem bibliotecas externas)
 │   ├── zip.js            monta o .zip (sem bibliotecas externas)
 │   ├── db.js             salvamento automático no aparelho
@@ -144,6 +145,14 @@ scanner-pdf-iphone/
 
 O PDF e o .zip são montados à mão, sem nenhuma biblioteca externa — por isso
 funcionam offline e os arquivos saem leves.
+
+### Como o enquadramento automático funciona
+
+1. A cada ~130 ms o app copia um pedacinho do vídeo (170 px de largura) para um canvas.
+2. `detectarBordas()` aplica limiar de Otsu e procura o maior bloco claro — que é o papel.
+3. O retângulo é mapeado para a imagem cheia, desenhado no guia (com o resto escurecido) e
+   estável quando a folha não se moveu entre leituras.
+4. Ao apertar o botão, a foto é recortada nesse retângulo antes de virar folha.
 
 ### Por que o WhatsApp não recebe "pastas"
 

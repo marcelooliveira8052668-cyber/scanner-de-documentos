@@ -286,6 +286,230 @@ async function importarArquivos(arquivos) {
 }
 
 /* =========================================================
+   Enquadramento automático ao vivo
+   ------------------------------------------------------------
+   A câmera procura a folha a cada instante, desenha um guia
+   que se ajusta no papel e já entrega a foto recortada.
+   ========================================================= */
+const Quadro = {
+  ativo: true,          // ligado/desligado pelo botão do topo
+  ret: null,            // { x, y, w, h } em pixels da imagem "canônica"
+  anterior: null,       // detecção anterior (para medir estabilidade)
+  estavel: 0,           // quantas detecções seguidos ficaram parecidos
+  animando: false,
+  ultimaTentativa: 0
+};
+
+const INTERVALO_DETECCAO = 130;   // ms entre leituras (não pesa no iPhone)
+const LARGURA_DETECCAO = 170;    // largura da miniatura analisada
+
+/** Mede o vídeo e diz se o quadro vem "deitado" (acontece no iPhone). */
+function geometriaVideo(video) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const r = video.getBoundingClientRect();
+  const emPe = r.height > r.width;
+  const deitado = vw > vh;
+  const girar = deitado && emPe;
+  return {
+    vw, vh,
+    largura: girar ? vh : vw,     // tamanho da imagem como o app guarda
+    altura: girar ? vw : vh,
+    girar
+  };
+}
+
+/** Converte um ponto do quadro do vídeo para a imagem canônica (giro aplicado). */
+function pontoParaCanonico(px, py, geo) {
+  return geo.girar ? { x: geo.vh - py, y: px } : { x: px, y: py };
+}
+
+/** Converte um ponto canônico de volta para o quadro do vídeo. */
+function pontoParaVideo(cx, cy, geo) {
+  return geo.girar ? { x: cy, y: geo.vh - cx } : { x: cx, y: cy };
+}
+
+/** Mapeia do quadro do vídeo para a tela, respeitando object-fit: cover. */
+function montarMapeamentoTela(video, geo) {
+  const r = video.getBoundingClientRect();
+  if (!r.width || !r.height || !geo.vw) return null;
+  const escala = Math.max(r.width / geo.vw, r.height / geo.vh);
+  return {
+    escala,
+    dx: (r.width - geo.vw * escala) / 2,
+    dy: (r.height - geo.vh * escala) / 2,
+    larguraTela: r.width,
+    alturaTela: r.height
+  };
+}
+
+/** Liga a leitura contínua da câmera. */
+function ligarDeteccao() {
+  Quadro.ret = null;
+  Quadro.anterior = null;
+  Quadro.estavel = 0;
+  Quadro.animando = true;
+  if (Quadro.raf) cancelAnimationFrame(Quadro.raf);
+  quadroLaco();
+}
+
+function desligarDeteccao() {
+  Quadro.animando = false;
+  if (Quadro.raf) cancelAnimationFrame(Quadro.raf);
+  Quadro.raf = null;
+  Quadro.ret = null;
+  const el = $('#estado-quadro');
+  if (el) el.hidden = true;
+}
+
+function quadroLaco() {
+  Quadro.raf = requestAnimationFrame(quadroLaco);
+  const video = $('#video');
+  if (!video || !video.videoWidth) return;
+  const agora = performance.now();
+  if (agora - Quadro.ultimaTentativa < INTERVALO_DETECCAO) return;
+  Quadro.ultimaTentativa = agora;
+
+  if (!Quadro.ativo || document.hidden) { limparGuia(); return; }
+
+  const geo = geometriaVideo(video);
+  const tela = montarMapeamentoTela(video, geo);
+  if (!tela) return;
+
+  // analyze uma miniatura: rápido e leve
+  const escala = LARGURA_DETECCAO / geo.vw;
+  const mini = Quadro.mini || (Quadro.mini = novoCanvas(1, 1));
+  mini.width = LARGURA_DETECCAO;
+  mini.height = Math.max(1, Math.round(geo.vh * escala));
+  const ctx = mini.getContext('2d', { willReadFrequently: true });
+  try {
+    ctx.drawImage(video, 0, 0, mini.width, mini.height);
+  } catch { return; }
+
+  const det = detectarBordas(mini);
+  if (!det) {
+    Quadro.ret = null;
+    Quadro.anterior = null;
+    Quadro.estavel = 0;
+    marcarEstado('Procurando a folha…', false);
+    limparGuia();
+    return;
+  }
+
+  // a miniatura tem o tamanho do QUADRO do vídeo: a escala usa vw/vh,
+  // e só depois o ponto é levar para a imagem canônica (já girada)
+  const fx = geo.vw / mini.width;
+  const fy = geo.vh / mini.height;
+  const canto = pontoParaCanonico(det.x * fx, det.y * fy, geo);
+  const canto2 = pontoParaCanonico((det.x + det.w) * fx, (det.y + det.h) * fy, geo);
+  const rect = {
+    x: Math.min(canto.x, canto2.x),
+    y: Math.min(canto.y, canto2.y),
+    w: Math.abs(canto2.x - canto.x),
+    h: Math.abs(canto2.y - canto.y)
+  };
+
+  // trava o retângulo na imagem canônica (nunca fora dela)
+  rect.x = clamp(rect.x, 0, geo.largura);
+  rect.y = clamp(rect.y, 0, geo.altura);
+  rect.w = clamp(rect.w, 10, geo.largura - rect.x);
+  rect.h = clamp(rect.h, 10, geo.altura - rect.y);
+
+  // quanto tempo a folha está parada na mesma posição
+  const ant = Quadro.anterior;
+  if (ant && Math.abs(ant.x - rect.x) < geo.largura * 0.02 &&
+      Math.abs(ant.y - rect.y) < geo.altura * 0.02 &&
+      Math.abs(ant.w - rect.w) < geo.largura * 0.02 &&
+      Math.abs(ant.h - rect.h) < geo.altura * 0.02) {
+    Quadro.estavel = Math.min(Quadro.estavel + 1, 4);
+  } else {
+    Quadro.estavel = 0;
+  }
+  Quadro.anterior = rect;
+  Quadro.ret = rect;
+
+  marcarEstado(Quadro.estavel >= 2 ? 'Folha enquadrada ✓' : 'Ajustando…', Quadro.estavel >= 2);
+  desenharGuia(video, geo, tela, rect);
+}
+
+function limparGuia() {
+  const c = $('#guia-canvas');
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+}
+
+function marcarEstado(texto, pronto) {
+  const el = $('#estado-quadro');
+  el.hidden = false;
+  el.classList.toggle('pronto', !!pronto);
+  $('#estado-quadro-txt').textContent = texto;
+}
+
+/** Desenha o guia: escurece fora da folha e marca as bordas. */
+function desenharGuia(video, geo, tela, rect) {
+  const c = $('#guia-canvas');
+  const larguraTela = Math.round(tela.larguraTela);
+  const alturaTela = Math.round(tela.alturaTela);
+  if (c.width !== larguraTela || c.height !== alturaTela) {
+    c.width = larguraTela;
+    c.height = alturaTela;
+  }
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  // 1) escurecer tudo que está fora do papel
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, .45)';
+  ctx.beginPath();
+  ctx.rect(0, 0, c.width, c.height);
+
+  // o retângulo do papel, em coordenadas da tela
+  const cantos = [
+    [rect.x, rect.y],
+    [rect.x + rect.w, rect.y],
+    [rect.x + rect.w, rect.y + rect.h],
+    [rect.x, rect.y + rect.h]
+  ].map(([cx, cy]) => {
+    const p = pontoParaVideo(cx, cy, geo);
+    return [p.x * tela.escala + tela.dx, p.y * tela.escala + tela.dy];
+  });
+
+  ctx.moveTo(cantos[0][0], cantos[0][1]);
+  for (let i = 1; i < 4; i++) ctx.lineTo(cantos[i][0], cantos[i][1]);
+  ctx.closePath();
+  ctx.fill('evenodd');
+  ctx.restore();
+
+  // 2) borda destacada
+  const pronto = Quadro.estavel >= 2;
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = pronto ? '#22c07a' : 'rgba(255,255,255,.92)';
+  ctx.shadowColor = pronto ? 'rgba(34,192,122,.8)' : 'rgba(0,0,0,.5)';
+  ctx.shadowBlur = pronto ? 14 : 6;
+  ctx.beginPath();
+  ctx.moveTo(cantos[0][0], cantos[0][1]);
+  for (let i = 1; i < 4; i++) ctx.lineTo(cantos[i][0], cantos[i][1]);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Liga/desliga o enquadramento automático. */
+function alternarQuadro() {
+  Quadro.ativo = !Quadro.ativo;
+  $('#btn-auto-quadro').classList.toggle('ativo', Quadro.ativo);
+  if (!Quadro.ativo) {
+    Quadro.ret = null;
+    Quadro.estavel = 0;
+    limparGuia();
+    $('#estado-quadro').hidden = true;
+    aviso('Enquadramento automático desligado.');
+  } else {
+    aviso('Enquadramento automático ligado.');
+  }
+}
+
+/* =========================================================
    Câmera
    ========================================================= */
 async function abrirCamera() {
@@ -308,6 +532,7 @@ async function abrirCamera() {
     await video.play();
     await video.play().catch(() => {});
     verificarLanterna();
+    ligarDeteccao();
   } catch (e) {
     aviso('Não consegui acessar a câmera. Autorize o acesso nas configurações do site.', 4200);
     irPara('home');
@@ -321,6 +546,7 @@ function verificarLanterna() {
 }
 
 function pararCamera() {
+  desligarDeteccao();
   if (App.stream) {
     App.stream.getTracks().forEach(t => t.stop());
     App.stream = null;
@@ -343,7 +569,7 @@ async function alternarLanterna() {
   }
 }
 
-/** Captura o quadro atual do vídeo e adiciona como nova página. */
+/** Fotografa a folha — já sai recortada no que a câmera encontrou. */
 async function capturar() {
   const video = $('#video');
   if (!video.videoWidth) { aviso('Aguarde a câmera abrir.'); return; }
@@ -352,24 +578,31 @@ async function capturar() {
   flash.classList.add('on');
   setTimeout(() => flash.classList.remove('on'), 130);
 
-  await comCarregando('Processando página…', async () => {
-    const vw = video.videoWidth, vh = video.videoHeight;
-    const bruto = novoCanvas(vw, vh);
-    bruto.getContext('2d').drawImage(video, 0, 0, vw, vh);
+  const enquadrado = !!(Quadro.ativo && Quadro.ret);
+  const geo = geometriaVideo(video);
 
-    // No iPhone a câmera traseira pode entregar o quadro "deitado":
-    // se a proporção do vídeo na tela for diferente da do quadro, é preciso girar.
-    const tela = video.getBoundingClientRect();
-    const quadroDeitado = vw > vh;
-    const telaEmPe = tela.height > tela.width;
-    let canvas = bruto;
-    if (quadroDeitado && telaEmPe) canvas = rotacionarCanvas(bruto, 90);
-    canvas = canvasLimitado(canvas, App.qualidade);
-    await adicionarPagina(canvas, `Folha ${App.paginas.length + 1}`);
+  await comCarregando('Processando folha…', async () => {
+    const bruto = novoCanvas(geo.vw, geo.vh);
+    bruto.getContext('2d').drawImage(video, 0, 0, geo.vw, geo.vh);
+
+    // o iPhone às vezes entrega o quadro deitado: gira para ficar em pé
+    let base = geo.girar ? rotacionarCanvas(bruto, 90) : bruto;
+
+    // corta o que está fora da folha (o que a câmera desenhou no guia)
+    if (enquadrado) {
+      base = recortarCanvas(base, Quadro.ret);
+    }
+
+    const folha = canvasLimitado(base, App.qualidade);
+    await adicionarPagina(folha, `Folha ${App.paginas.length + 1}`);
   });
 
   paginasCount();
-  aviso('Página adicionada ✓');
+  aviso(enquadrado ? 'Folha enquadrada e salva ✓' : 'Folha salva ✓ (sem enquadrar: use ✂ para cortar)');
+
+  // já começa a procurar a próxima folha
+  Quadro.anterior = null;
+  Quadro.estavel = 0;
 }
 
 /* =========================================================
@@ -1255,6 +1488,7 @@ function iniciar() {
   // câmera
   $('#btn-fechar-camera').addEventListener('click', () => { pararCamera(); irPara(App.paginas.length ? 'editor' : 'home'); });
   $('#btn-disparo').addEventListener('click', capturar);
+  $('#btn-auto-quadro').addEventListener('click', alternarQuadro);
   $('#btn-flash').addEventListener('click', alternarLanterna);
   $('#btn-auto-crop').addEventListener('click', () => recorteAutomatico(App.paginas));
   $('#btn-ver-paginas').addEventListener('click', () => irPara('editor'));

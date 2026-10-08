@@ -3,8 +3,8 @@
    ========================================================= */
 'use strict';
 
-const VERSAO = 'scanner-v4';
-const V = '?v=4';                    // mesma versão usada no index.html
+const VERSAO = 'scanner-v5';
+const V = '?v=5';                    // mesma versão usada no index.html
 const ARQUIVOS = [
   './',
   './index.html',

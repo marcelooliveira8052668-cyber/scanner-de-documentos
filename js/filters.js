@@ -180,7 +180,8 @@ function detectarBordas(origem) {
 
   const fx = origem.width / w;
   const fy = origem.height / h;
-  const margem = 0.02;
+  // margem pequena: tira só a transição da borda, sem comer o papel
+  const margem = 0.012;
   const x = clamp((minX + w * margem) * fx, 0, origem.width - 1);
   const y = clamp((minY + h * margem) * fy, 0, origem.height - 1);
   const x2 = clamp((maxX - w * margem + 1) * fx, x + 8, origem.width);
