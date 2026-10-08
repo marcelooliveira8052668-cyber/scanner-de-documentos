@@ -1,0 +1,6 @@
+# nada de node_modules ou arquivos de teste no repositório
+node_modules/
+*.log
+.DS_Store
+teste.pdf
+pdf-partes/

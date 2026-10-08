@@ -1,0 +1,7 @@
+﻿// QR Code Generator for JavaScript
+// Copyright (c) 2013 Kazuhiko Arase, All Rights Reserved
+// Licensed under the MIT License.
+// https://github.com/kazuhikoarase/qrcode-generator
+//
+// Copia vendorizada em js/vendor/qrcode.js para o app funcionar sem internet.
+// Nao edite este arquivo.

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>Scanner de Documentos</title>
+<meta name="description" content="Digitalize documentos com a câmera do iPhone, gere PDF e compartilhe. Funciona offline.">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scanner">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ======================= TELA INICIAL ======================= -->
+<section id="tela-home" class="tela ativa">
+  <header class="topo">
+    <h1>📄 Scanner</h1>
+    <p class="sub">Digitalize • PDF • Compartilhe</p>
+  </header>
+
+  <main class="conteudo">
+    <div class="acoes-grandes">
+      <button id="btn-camera" class="btn-grande primario">
+        <span class="emoji">📷</span>
+        <span class="txt"><strong>Escanear com a câmera</strong><small>Fotografar páginas do documento</small></span>
+      </button>
+      <button id="btn-importar" class="btn-grande">
+        <span class="emoji">🖼️</span>
+        <span class="txt"><strong>Importar fotos</strong><small>Do iCloud Fotos ou do Arquivos</small></span>
+      </button>
+    </div>
+
+    <section class="cartao">
+      <h2>Qualidade do scan</h2>
+      <div class="chips" id="chips-qualidade">
+        <button class="chip" data-q="1600">Rápido</button>
+        <button class="chip ativo" data-q="2400">Boa</button>
+        <button class="chip" data-q="3200">Máxima</button>
+      </div>
+      <p class="dica" id="dica-qualidade">Bom equilíbrio entre nitidez e tamanho do arquivo.</p>
+    </section>
+
+    <section class="cartao">
+      <h2>Melhorar imagem</h2>
+      <div class="chips" id="chips-filtro">
+        <button class="chip ativo" data-f="auto">Automático</button>
+        <button class="chip" data-f="color">Cor</button>
+        <button class="chip" data-f="gray">Tons de cinza</button>
+        <button class="chip" data-f="contrast">Alto contraste</button>
+      </div>
+      <p class="dica" id="dica-filtro">Tira o tom amarelado e deixa o papel bem branco.</p>
+      <button id="btn-aplicar-filtro" class="btn-linha" hidden>Aplicar este ajuste a todas as páginas</button>
+    </section>
+
+    <section class="cartao">
+      <h2>Acesso rápido</h2>
+      <p class="dica" style="margin-top:0">Abra o app no iPhone por este QR Code e depois use
+        <b>Compartilhar → Adicionar à Tela de Início</b> para criar o ícone.</p>
+      <button id="btn-qr" class="btn-linha">📱 Ver QR Code de acesso</button>
+    </section>
+
+    <section class="cartao">
+      <h2>Tamanho da página no PDF</h2>
+      <div class="chips" id="chips-pagina">
+        <button class="chip ativo" data-p="a4">A4</button>
+        <button class="chip" data-p="carta">Carta</button>
+        <button class="chip" data-p="foto">Tamanho da foto</button>
+      </div>
+    </section>
+
+    <div class="rodape-info">
+      <p>💡 Para instalar no iPhone: abra no <b>Safari</b> → botão <b>Compartilhar</b> → <b>Adicionar à Tela de Início</b>.</p>
+      <p class="offline" id="status-offline">Verificando conexão…</p>
+    </div>
+  </main>
+</section>
+
+<!-- ======================= TELA DA CÂMERA ======================= -->
+<section id="tela-camera" class="tela camera-tela">
+  <video id="video" playsinline muted autoplay disablepictureinpicture></video>
+  <canvas id="flash" class="flash"></canvas>
+
+  <div class="camera-topo">
+    <button id="btn-fechar-camera" class="btn-icone" aria-label="Fechar câmera">✕</button>
+    <div class="contador" id="contador">0</div>
+    <button id="btn-flash" class="btn-icone" aria-label="Lanterna" hidden>🔦</button>
+    <span class="btn-icone fantasma" aria-hidden="true"></span>
+  </div>
+
+  <div class="guia" aria-hidden="true">
+    <span class="canto c1"></span><span class="canto c2"></span>
+    <span class="canto c3"></span><span class="canto c4"></span>
+  </div>
+
+  <div class="camera-base">
+    <button id="btn-auto-crop" class="btn-texto" title="Aplica recorte automático nas páginas já capturadas">✂ Recorte auto</button>
+    <button id="btn-disparo" class="btn-disparo" aria-label="Capturar página">
+      <span></span>
+    </button>
+    <button id="btn-ver-paginas" class="btn-texto" title="Abrir as páginas já capturadas">📑 Páginas</button>
+  </div>
+</section>
+
+<!-- ======================= TELA DE EDIÇÃO ======================= -->
+<section id="tela-editor" class="tela">
+  <header class="topo">
+    <button id="btn-voltar-home" class="btn-icone" aria-label="Voltar">‹</button>
+    <h1 id="editor-titulo">Minhas páginas</h1>
+    <button id="btn-mais" class="btn-icone" aria-label="Adicionar páginas">＋</button>
+  </header>
+
+  <main class="conteudo">
+    <div id="status-salvamento" class="status-save" hidden></div>
+    <div id="aviso-grande" class="aviso-grande" hidden>
+      📚 <b>Documento grande.</b> Pode gerar o PDF à vontade, quantas folhas quiser.
+      Se o iPhone ficar lento, use a qualidade <b>Rápido</b> na tela inicial.
+    </div>
+    <div id="lista-paginas" class="lista"></div>
+    <div id="editor-vazio" class="vazio" hidden>
+      <p class="emoji-grande">📄</p>
+      <p>Nenhuma página ainda.</p>
+      <p class="dica">Toque em <b>＋</b> para fotografar ou importar fotos do iCloud.</p>
+    </div>
+  </main>
+
+  <div class="barra-inferior">
+    <button id="btn-limpar" class="btn-secundario">Limpar</button>
+    <button id="btn-fotos" class="btn-secundario" title="Salvar cada página como foto no iCloud Fotos">☁️<br>Fotos</button>
+    <button id="btn-gerar-pdf" class="btn-primario">Gerar e enviar PDF</button>
+  </div>
+</section>
+
+<!-- ======================= MODAL RECORTE ======================= -->
+<div id="modal-recorte" class="modal" hidden>
+  <div class="modal-topo">
+    <button id="btn-recorte-cancelar" class="btn-icone">✕</button>
+    <strong>Recortar página</strong>
+    <button id="btn-recorte-ok" class="btn-icone ok">✓</button>
+  </div>
+  <div id="area-recorte" class="area-recorte">
+    <img id="img-recorte" alt="Página para recortar">
+    <div id="caixa-recorte" class="caixa-recorte">
+      <span class="alca h1"></span><span class="alca h2"></span>
+      <span class="alca h3"></span><span class="alca h4"></span>
+      <span class="grelha"></span>
+    </div>
+  </div>
+  <div class="chips chips-recorte" id="chips-proporcao">
+    <button class="chip ativo" data-r="livre">Livre</button>
+    <button class="chip" data-r="a4">A4</button>
+    <button class="chip" data-r="carta">Carta</button>
+    <button class="chip" data-r="11">1:1</button>
+    <button class="chip" data-r="34">3:4</button>
+    <button class="chip" data-r="43">4:3</button>
+  </div>
+  <div class="modal-base">
+    <button id="btn-recorte-auto" class="btn-secundario">Detectar bordas</button>
+    <button id="btn-recorte-tudo" class="btn-secundario">Página inteira</button>
+  </div>
+</div>
+
+<!-- ======================= MODAL PÁGINA ======================= -->
+<div id="modal-pagina" class="modal" hidden>
+  <div class="modal-topo">
+    <button id="btn-pagina-fechar" class="btn-icone">✕</button>
+    <strong id="pagina-titulo">Página</strong>
+    <span class="btn-icone fantasma"></span>
+  </div>
+  <div class="preview-pagina"><img id="img-pagina-modal" alt="Prévia da página"></div>
+  <div class="acoes-modal">
+    <button data-a="girar" class="btn-acao"><span>⟳</span>Girar</button>
+    <button data-a="recortar" class="btn-acao"><span>⛶</span>Recortar</button>
+    <button data-a="auto" class="btn-acao"><span>✂</span>Bordas</button>
+    <button data-a="imagem" class="btn-acao"><span>☁️</span>Salvar foto</button>
+    <button data-a="excluir" class="btn-acao perigo"><span>🗑️</span>Excluir</button>
+  </div>
+</div>
+
+<!-- ======================= MODAL SALVAR FOTOS ======================= -->
+<div id="modal-fotos" class="modal" hidden>
+  <div class="modal-topo">
+    <button id="btn-fotos-fechar" class="btn-icone">✕</button>
+    <strong>Salvar no iCloud Fotos</strong>
+    <span class="btn-icone fantasma"></span>
+  </div>
+  <div class="conteudo">
+    <p class="explicacao">
+      O iPhone vai abrir o menu de compartilhamento de cada página, uma por vez.
+      Toque em <b>“Salvar Imagem”</b> para guardar a foto no <b>iCloud Fotos</b>.
+    </p>
+    <div id="passos-fotos" class="passos"></div>
+  </div>
+</div>
+
+<!-- ======================= MODAL QR CODE ======================= -->
+<div id="modal-qr" class="modal" hidden>
+  <div class="modal-topo">
+    <button id="btn-qr-fechar" class="btn-icone">✕</button>
+    <strong>Acesso pelo QR Code</strong>
+    <span class="btn-icone fantasma"></span>
+  </div>
+  <div class="conteudo qr-conteudo">
+    <div class="qr-caixa" id="qr-caixa"></div>
+    <p class="url" id="qr-url">—</p>
+    <p class="explicacao">
+      1. Abra a <b>Câmera</b> do iPhone e aponte para o código.<br>
+      2. Toque no link que aparecer.<br>
+      3. No Safari, use <b>Compartilhar → Adicionar à Tela de Início</b>.<br>
+      4. Pronto: o Scanner vira um app com ícone e funciona sem internet.
+    </p>
+    <div class="linha-botoes">
+      <button id="btn-copiar-url" class="btn-secundario">Copiar link</button>
+      <button id="btn-enviar-link" class="btn-primario">Enviar link</button>
+    </div>
+  </div>
+</div>
+
+<div id="carregando" class="carregando" hidden><div class="giro"></div><span id="carregando-txt">Processando…</span></div>
+<div id="brindes" class="brindes"></div>
+
+<input type="file" id="input-arquivos" accept="image/*" multiple hidden>
+<a id="link-diagnostico" href="#" hidden>diagnóstico</a>
+
+<script src="js/vendor/qrcode.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/filters.js"></script>
+<script src="js/pdf.js"></script>
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
