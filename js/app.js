@@ -645,6 +645,7 @@ async function capturar() {
   // (Quadro.provisorio = o guia era só um chute, não a folha em si).
   const enquadrado = !!(Quadro.ativo && Quadro.ret && !Quadro.provisorio);
   const geo = geometriaVideo(video);
+  let dimSalva = '';
 
   await comCarregando('Processando folha…', async () => {
     const bruto = novoCanvas(geo.vw, geo.vh);
@@ -661,11 +662,12 @@ async function capturar() {
     let folha = canvasLimitado(base, App.qualidade);
     // afina o texto: tira o borrão leve que a câmera deixa
     folha = realcarNitidez(folha);
+    dimSalva = `${folha.width}×${folha.height}`;
     await adicionarPagina(folha, `Folha ${App.paginas.length + 1}`);
   });
 
   paginasCount();
-  aviso(enquadrado ? 'Folha enquadrada e salva ✓' : 'Folha salva ✓ (sem enquadrar: use ✂ para cortar)');
+  aviso(`${enquadrado ? 'Folha enquadrada e salva ✓' : 'Folha salva ✓ (sem enquadrar: use ✂ para cortar)'} — ${dimSalva} px`, 4200);
 
   // já começa a procurar a próxima folha
   Quadro.anterior = null;
@@ -1031,7 +1033,8 @@ function abrirModalPagina(id) {
   const p = acharPagina(id);
   if (!p) return;
   const i = App.paginas.indexOf(p);
-  $('#pagina-titulo').textContent = `Página ${i + 1}`;
+  // a resolução fica à vista: ajuda a entender se a foto saiu apertada
+  $('#pagina-titulo').textContent = `Página ${i + 1} · ${p.largura}×${p.altura} px`;
   const img = $('#img-pagina-modal');
   // garante a versão em alta qualidade (gera o blob se ainda não existir)
   img.src = '';
@@ -1040,6 +1043,10 @@ function abrirModalPagina(id) {
   });
   ZoomPreview.resetar();
   $('#modal-pagina').hidden = false;
+  // enquanto a pessoa nunca tiver ampliado, ensina o gesto
+  if (!ZoomPreview.jaAmpliou) {
+    aviso('Amplie com a pinça de 2 dedos, toque duplo, ou use o botão ＋', 5200);
+  }
 }
 
 function fecharModalPagina() {
@@ -1062,11 +1069,15 @@ const ZoomPreview = {
   baseW: 0,          // largura renderizada em escala 1
   baseEscala: 1,
   distBase: 0,
+  gestBase: 1,       // escala no início do gesto nativo do iPhone
+  gestoes: false,    // true = o iPhone cuida da pinça (gesture*)
   xBase: 0,
   yBase: 0,
   x0: 0,
   y0: 0,
   arrastando: false,
+  // já ampliou alguma vez? (para mostrar a dica só enquanto não souber)
+  jaAmpliou: (() => { try { return localStorage.getItem('zoomJaUsou') === '1'; } catch (_) { return false; } })(),
 
   resetar() {
     const img = $('#img-pagina-modal');
@@ -1079,6 +1090,8 @@ const ZoomPreview = {
       img.style.maxHeight = '';
       img.style.transform = '';
     }
+    const ind = $('#zoom-escala');
+    if (ind) ind.textContent = '1×';
   }
 };
 
@@ -1086,7 +1099,20 @@ function ligarZoomPreview() {
   const alvo = $('#modal-pagina .preview-pagina');
   const img = $('#img-pagina-modal');
   if (!alvo || !img) return;
+  // evita escutar os gestos duas vezes se chamarem a função de novo
+  if (alvo.dataset.zoomLigado) return;
+  alvo.dataset.zoomLigado = '1';
   const z = ZoomPreview;
+
+  /* No iPhone a pinça NÃO vem como touchstart/touchmove: o Safari entrega
+     gesturestart/gesturechange e, se ninguém chamar preventDefault(), ele
+     amplia a PÁGINA inteira (a foto não muda). Por isso o caminho abaixo. */
+  z.gestoes = 'ongesturestart' in window;
+
+  const indicar = () => {
+    const el = $('#zoom-escala');
+    if (el) el.textContent = z.escala <= 1.02 ? '1×' : (Math.round(z.escala * 10) / 10) + '×';
+  };
 
   const aplicar = () => {
     if (z.escala <= 1.02) {
@@ -1094,20 +1120,28 @@ function ligarZoomPreview() {
       img.style.maxWidth = ''; img.style.maxHeight = '';
       img.style.transform = '';
       z.escala = 1; z.x = 0; z.y = 0; z.baseW = 0;
+      indicar();
       return;
     }
     if (!z.baseW) z.baseW = img.offsetWidth;
-    // largura (não transform: scale) => o navegador re-renderiza nítido
+    // muda a LARGURA (não transform: scale) => o navegador re-renderiza
+    // direto do arquivo original, sem re-amostrar: o texto fica nítido
     img.style.maxWidth = 'none';
     img.style.maxHeight = 'none';
     img.style.width = (z.baseW * z.escala) + 'px';
     img.style.height = 'auto';
     img.style.transform = `translate(${Math.round(z.x)}px, ${Math.round(z.y)}px)`;
+    indicar();
+    if (z.escala > 1.2 && !z.jaAmpliou) {
+      z.jaAmpliou = true;
+      try { localStorage.setItem('zoomJaUsou', '1'); } catch (_) {}
+    }
   };
 
   const limitar = () => {
     z.escala = clamp(z.escala, 1, 6);
     if (z.escala <= 1.02) { z.x = 0; z.y = 0; return; }
+    if (!z.baseW) z.baseW = img.offsetWidth;
     const w = z.baseW * z.escala;
     const maxX = Math.max(0, (w - alvo.clientWidth) / 2 + 10);
     z.x = clamp(z.x, -maxX, maxX);
@@ -1116,24 +1150,59 @@ function ligarZoomPreview() {
     z.y = clamp(z.y, -maxY, maxY);
   };
 
+  const nosControles = ev => !!(ev.target && ev.target.closest && ev.target.closest('.zoom-controles'));
+
+  /* ---------------- botões + / − / 1× ---------------- */
+  const btn = (id, fn) => {
+    const el = $(id);
+    if (el) el.addEventListener('click', e => { e.stopPropagation(); fn(); });
+  };
+  btn('#zoom-mais', () => { z.escala = clamp(z.escala * 1.7, 1, 6); limitar(); aplicar(); });
+  btn('#zoom-menos', () => { z.escala = clamp(z.escala / 1.7, 1, 6); limitar(); aplicar(); });
+  btn('#zoom-escala', () => { z.escala = 1; z.x = 0; z.y = 0; aplicar(); });
+
+  /* ---------------- iPhone: gesto nativo da pinça ---------------- */
+  // registrados sempre: em navegadores que não emitem, são ociosos
+  alvo.addEventListener('gesturestart', ev => {
+    if (nosControles(ev)) return;
+    ev.preventDefault();                      // segura o zoom da página
+    z.gestBase = z.escala;
+    z.distBase = 0;                           // deixa o caminho de touch quieto
+    z.arrastando = false;
+  }, { passive: false });
+  alvo.addEventListener('gesturechange', ev => {
+    if (nosControles(ev)) return;
+    ev.preventDefault();
+    z.escala = z.gestBase * (ev.scale || 1);
+    limitar(); aplicar();
+  }, { passive: false });
+  alvo.addEventListener('gestureend', ev => {
+    if (ev.cancelable) ev.preventDefault();
+    z.distBase = 0;
+  }, { passive: false });
+
+  /* ---------------- Android / computador: pinça pelo toque ---------------- */
   const pontos = ev => Array.from(ev.touches).map(t => ({ x: t.clientX, y: t.clientY }));
   const distancia = a => Math.hypot(a[1].x - a[0].x, a[1].y - a[0].y);
 
   alvo.addEventListener('touchstart', ev => {
+    if (nosControles(ev)) return;
     if (ev.touches.length === 2) {
+      if (z.gestoes) return;                    // no iPhone quem cuida é o gesture*
       z.distBase = distancia(pontos(ev)) || 1;
       z.baseEscala = z.escala;
       z.xBase = z.x; z.yBase = z.y;
       z.arrastando = false;
     } else if (ev.touches.length === 1 && z.escala > 1) {
-      z.arrastando = true;
+      z.arrastando = true;                      // arrasta a foto ampliada
       z.xBase = z.x; z.yBase = z.y;
       z.x0 = ev.touches[0].clientX; z.y0 = ev.touches[0].clientY;
     }
   }, { passive: true });
 
   alvo.addEventListener('touchmove', ev => {
-    if (ev.touches.length === 2 && z.distBase > 0) {
+    if (nosControles(ev)) return;
+    if (!z.gestoes && ev.touches.length === 2 && z.distBase > 0) {
       z.escala = z.baseEscala * (distancia(pontos(ev)) / z.distBase);
       limitar(); aplicar();
       if (ev.cancelable) ev.preventDefault();
@@ -1148,6 +1217,7 @@ function ligarZoomPreview() {
   // toque duplo detectado à mão (o dblclick nem sempre dispara no iOS)
   let ultimoToque = 0;
   const fim = ev => {
+    if (nosControles(ev)) return;
     if (ev.touches.length < 2) z.distBase = 0;
     if (ev.touches.length === 0) {
       z.arrastando = false;
@@ -1167,9 +1237,9 @@ function ligarZoomPreview() {
   alvo.addEventListener('touchcancel', fim);
 
   // marca se houve arrasto/pinça para não confundir com toque duplo
-  alvo.addEventListener('touchmove', () => { z.moveu = true; }, { passive: true });
+  alvo.addEventListener('touchmove', ev => { if (!nosControles(ev)) z.moveu = true; }, { passive: true });
 
-  // mouse (teste no computador): zoom com roda e toque duplo
+  // computador: zoom com a roda (Ctrl + roda)
   alvo.addEventListener('wheel', ev => {
     if (!ev.ctrlKey) return;
     ev.preventDefault();
@@ -1183,7 +1253,9 @@ function ligarZoomPreview() {
    ========================================================= */
 async function compartilharImagemDaPagina(pagina, indice) {
   await comCarregando('Preparando a imagem…', async () => {
-    const blob = await canvasParaBlob(await pagina.canvasFinal(), 'image/jpeg', 0.92);
+    // 0.97: quase sem perda — o WhatsApp recomprime por cima, então quanto
+    // menos defeito chegar nessa etapa, mais legível fica o texto lá na frente
+    const blob = await canvasParaBlob(await pagina.canvasFinal(), 'image/jpeg', 0.97);
     const nome = nomeDeArquivo(pagina.nome || `Folha ${indice + 1}`, 'jpg');
     await compartilharArquivo(blob, nome, pagina.nome || `Folha ${indice + 1}`);
   });
@@ -1823,9 +1895,23 @@ function atualizarBotaoFiltro() {
 }
 
 function registrarServiceWorker() {
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+  const abertoEm = Date.now();
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    // procura versão nova TODA vez que o app abre — sem isso, quem já
+    // instalou na tela de início pode ficar preso numa versão velha
+    reg.update();
+    reg.addEventListener('updatefound', () => {
+      const novo = reg.installing;
+      if (!novo) return;
+      novo.addEventListener('statechange', () => {
+        if (novo.state !== 'activated' || !navigator.serviceWorker.controller) return;
+        // recarrega uma vez, logo na abertura, para a versão nova valer
+        if (Date.now() - abertoEm < 12000) location.reload();
+        else aviso('Atualização pronta! Feche o app e abra de novo.', 6000);
+      });
+    });
+  }).catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', iniciar);

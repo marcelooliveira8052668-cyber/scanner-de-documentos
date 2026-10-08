@@ -13,7 +13,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -204,7 +204,14 @@
     <strong id="pagina-titulo">Página</strong>
     <span class="btn-icone fantasma"></span>
   </div>
-  <div class="preview-pagina"><img id="img-pagina-modal" alt="Prévia da página"></div>
+  <div class="preview-pagina">
+    <img id="img-pagina-modal" alt="Prévia da página">
+    <div class="zoom-controles">
+      <button type="button" id="zoom-menos" aria-label="Reduzir">−</button>
+      <button type="button" id="zoom-escala" aria-label="Voltar ao tamanho normal">1×</button>
+      <button type="button" id="zoom-mais" aria-label="Ampliar">＋</button>
+    </div>
+  </div>
   <div class="acoes-modal">
     <button data-a="girar" class="btn-acao"><span>⟳</span>Girar</button>
     <button data-a="recortar" class="btn-acao"><span>⛶</span>Recortar</button>
@@ -278,12 +285,12 @@
 
 <!-- O ?v= força o navegador a buscar a versão nova do arquivo.
      Sem isso, quem já instalou o app continuaria vendo a versão antiga. -->
-<script src="js/vendor/qrcode.js?v=7"></script>
-<script src="js/utils.js?v=7"></script>
-<script src="js/filters.js?v=7"></script>
-<script src="js/pdf.js?v=7"></script>
-<script src="js/zip.js?v=7"></script>
-<script src="js/db.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
+<script src="js/vendor/qrcode.js?v=8"></script>
+<script src="js/utils.js?v=8"></script>
+<script src="js/filters.js?v=8"></script>
+<script src="js/pdf.js?v=8"></script>
+<script src="js/zip.js?v=8"></script>
+<script src="js/db.js?v=8"></script>
+<script src="js/app.js?v=8"></script>
 </body>
 </html>

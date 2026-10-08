@@ -553,8 +553,24 @@ body { user-select: none; -webkit-user-select: none; }
 .linha-botoes .btn-primario { flex: 1; }
 .linha-botoes .btn-secundario { flex: 0 0 auto; }
 
-.preview-pagina { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+.preview-pagina { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
 .preview-pagina img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* botões de zoom: garantem a ampliação mesmo quando a pinça não responde */
+.zoom-controles {
+  position: absolute; right: 12px; bottom: 12px; z-index: 2;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px; border-radius: 999px;
+  background: rgba(8, 12, 22, .82); border: 1px solid var(--borda);
+}
+.zoom-controles button {
+  min-width: 44px; height: 44px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--borda);
+  background: var(--card); color: var(--txt);
+  font-size: 21px; font-weight: 700; line-height: 1;
+}
+.zoom-controles button:active { background: var(--card2); }
+#zoom-escala { font-size: 13px; color: var(--txt2); min-width: 52px; }
 
 .acoes-modal {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px;

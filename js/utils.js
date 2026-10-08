@@ -110,10 +110,21 @@ function realcarNitidez(canvas, forca = 0.55) {
     }
   }
 
-  // 3) aplica o realce nos três canais: ganha a nitidez da diferença
-  //    entre o original e o borrado, sem mudar as cores da página
+  // 3) aplica o realce nos três canais, com portão de ruído.
+  //    Limiares calibrados pela distribuição medida em fundo de sensor:
+  //    o grão da câmera vive em |dif| < 9 e as letras em |dif| ≫ 9.
+  //    - até 5: fundo liso => alisado (menos ruído sobrevive à recompressão
+  //      do WhatsApp, que transforma grão em papa em volta do texto);
+  //    - de 5 a 9: neutro => nem alisa nem amplifica (é onde o grão mora);
+  //    - acima de 9: borda de letra => realce cheio.
   for (let p = 0, i = 0; p < n; p++, i += 4) {
-    const delta = (lum[p] - blur[p]) * forca;
+    const dif = lum[p] - blur[p];
+    const m = dif < 0 ? -dif : dif;
+    let delta;
+    if (m < 5) delta = dif * -0.40;       // alisa o fundo
+    else if (m < 9) delta = 0;            // zona do grão: deixa como está
+    else delta = dif * forca;             // letra/borda: realce cheio
+    if (!delta) continue;
     d[i]     = clamp(d[i] + delta, 0, 255);
     d[i + 1] = clamp(d[i + 1] + delta, 0, 255);
     d[i + 2] = clamp(d[i + 2] + delta, 0, 255);
