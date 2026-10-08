@@ -53,26 +53,38 @@ O atalho para quem ainda não quiser instalar: na tela inicial do app, botão
 
 ## Publicar (qualquer pessoa pode, de graça)
 
-### Opção A — GitHub Pages (com o GitHub CLI instalado)
+### Opção A — GitHub Pages (já publicado)
+
+O app já está no ar:
+
+**https://marcelooliveira8052668-cyber.github.io/scanner-de-documentos/**
+
+Repositório: https://github.com/marcelooliveira8052668-cyber/scanner-de-documentos
+
+Para republicar depois de mexer no código:
 
 ```bash
 cd scanner-pdf-iphone
-git init
+git add -A
+git commit -m "minha alteracao"
+git push              # o GitHub Pages atualiza sozinho em ~1 minuto
+```
+
+O Pages está configurado para publicar a pasta inteira do repositório, direto
+da branch `main` — não precisa de configuração extra.
+
+Se quiser publicar em outro repositório seu, o caminho é:
+
+```bash
 gh repo create scanner-de-documentos --public --source=. --push
-sleep 5
-gh api -X POST repos/:owner/:repo/pages -f source[branch]=main -f source[path]=/ >/dev/null
+gh api -X POST repos/SEU-USUARIO/scanner-de-documentos/pages \
+  -f "source[branch]=main" -f "source[path]=/"
 ```
 
-O endereço fica em `Settings → Pages` no repositório. Como o repositório é
-público, o link é:
-
-```
-https://SEU-USUARIO.github.io/scanner-de-documentos/
-```
-
-Atualizei o app com GitHub Actions (`.github/workflows/pages.yml`), então
-qualquer `git push` publica sozinho. O passo do `gh api` só é preciso na
-primeira publicação.
+> O GitHub Pages pode rodar por Actions também. O arquivo está pronto em
+> `tools/opcional/pages.yml` — se mover ele para `.github/workflows/`, ele
+> assume a publicação. Só é preciso rodar `gh auth refresh -s workflow`
+> uma vez para o GitHub autorizar.
 
 ### Opção B — Netlify Drop (arrastar e soltar, sem terminal)
 
@@ -120,7 +132,8 @@ scanner-pdf-iphone/
 └── tools/
     ├── dev-server.mjs    servidor local para testar
     ├── gerar-icones.mjs  gera os PNGs do ícone
-    └── validar-pdf.mjs   confere se o PDF saiu bem
+    ├── validar-pdf.mjs   confere se o PDF saiu bem
+    └── opcional/         publicação por Actions (opcional)
 ```
 
 O PDF é montado à mão, sem nenhuma biblioteca externa — por isso funciona
